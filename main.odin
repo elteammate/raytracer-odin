@@ -1,8 +1,10 @@
 package raytracer
 
 import "core:c"
+import "core:os"
 import "core:fmt"
 import "core:thread"
+import "core:simd"
 import "core:sync"
 import "core:math/linalg"
 import "core:time"
@@ -51,8 +53,41 @@ rc_set_pixel :: proc(rc: Rc, pos: [2]u16, color: [3]f32) {
     sync.atomic_store_explicit(&rc.pixels[i], cast(u32le)data, .Relaxed)
 }
 
+Plane :: struct { normal: [3]f32 }
+Ellipsoid :: struct { radii: [3]f32 }
+Box :: struct { extent: [3]f32 }
+Geometry :: union { Plane, Ellipsoid, Box }
+Object :: struct {
+    geometry: Geometry,
+    pos: [3]f32,
+    rotation: quaternion128,
+    color: [3]f32,
+}
+
+Scene :: struct {
+    bg_color: [3]f32,
+    cam_pos: [3]f32,
+    cam_right, cam_up, cam_forward: [3]f32,
+    cam_fov_x: f32,
+    objects: [dynamic]Object,
+}
+
+destory_scene :: proc(s: Scene) {
+    delete(s.objects)
+}
+
+Ray :: struct {
+    o, d: [3]f32,
+}
+
 main :: proc() {
-    rendering_context := create_rendering_context({512, 512})
+    scene, dims, parse_error := read_scene(os.args[1])
+    if parse_error != nil {
+        fmt.panicf("Failed to parse scene: %v", parse_error)
+    }
+    defer destory_scene(scene)
+
+    rendering_context := create_rendering_context(dims)
     defer destroy_rendering_context(rendering_context)
     rc := &rendering_context
 
