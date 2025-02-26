@@ -4,11 +4,11 @@ import "core:os"
 import "core:fmt"
 import "core:bufio"
 
-read_scene :: proc(path: string) -> (scene: Scene, dims: [2]u16, error: Maybe(string)) {
-    file_handle, file_open_err := os.open(path)
-    if file_open_err != nil do fmt.panicf("Failed to open file: %v", path)
-    defer os.close(file_handle)
-
+read_scene :: proc(file_handle: os.Handle) -> (
+    scene: Scene,
+    dims: [2]u16,
+    error: Maybe(string)
+) {
     stream := os.stream_from_handle(file_handle)
 
     reader: bufio.Reader

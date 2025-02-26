@@ -19,7 +19,7 @@ debug_window_routine :: proc(rc: Rc) {
     window := sdl2.CreateWindow(
         "Raytracer",
         100, 100,
-        cast(c.int)rc.image_dims.x, cast(c.int)rc.image_dims.y,
+        cast(c.int)rc.dims.x, cast(c.int)rc.dims.y,
         {},
     )
     if window == nil {
@@ -52,7 +52,7 @@ debug_window_routine :: proc(rc: Rc) {
         depth :: size_of(rc.pixels[0])
         surface := sdl2.CreateRGBSurfaceWithFormatFrom(
             raw_data(rc.pixels),
-            width = cast(c.int)rc.image_dims.x, height = cast(c.int)rc.image_dims.y,
+            width = cast(c.int)rc.dims.x, height = cast(c.int)rc.dims.y,
             depth = depth, pitch = depth * cast(c.int)rc.dims.x,
             format = cast(u32)sdl2.PixelFormatEnum.XBGR8888,
         )
@@ -64,7 +64,7 @@ debug_window_routine :: proc(rc: Rc) {
         sdl2.RenderClear(renderer)
         rect := sdl2.Rect{
             x = 0, y = 0,
-            w = cast(c.int)rc.image_dims.x, h = cast(c.int)rc.image_dims.y,
+            w = cast(c.int)rc.dims.x, h = cast(c.int)rc.dims.y,
         }
         sdl2.RenderCopy(renderer, texture, nil, &rect)
         sdl2.RenderPresent(renderer)
