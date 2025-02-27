@@ -6,7 +6,7 @@ import "core:bufio"
 
 read_scene :: proc(file_handle: os.Handle) -> (
     scene: Scene,
-    dims: [2]u16,
+    dims: [2]u32,
     error: Maybe(string)
 ) {
     stream := os.stream_from_handle(file_handle)
@@ -23,14 +23,14 @@ read_scene :: proc(file_handle: os.Handle) -> (
         command := read_word_temp(r)
         switch command {
         case "DIMENSIONS":
-            dims.x = cast(u16)read_int(r) or_return
-            dims.y = cast(u16)read_int(r) or_return
+            dims.x = cast(u32)read_int(r) or_return
+            dims.y = cast(u32)read_int(r) or_return
         case "BG_COLOR": scene.bg_color = read_3f32(r) or_return
-        case "CAMERA_POSITION": scene.cam_pos = read_3f32(r) or_return
-        case "CAMERA_UP": scene.cam_up = read_3f32(r) or_return
-        case "CAMERA_RIGHT": scene.cam_right = read_3f32(r) or_return
-        case "CAMERA_FORWARD": scene.cam_forward = read_3f32(r) or_return
-        case "CAMERA_FOV_X": scene.cam_fov_x = read_f32(r) or_return
+        case "CAMERA_POSITION": scene.cam.pos = read_3f32(r) or_return
+        case "CAMERA_RIGHT": scene.cam.basis[0] = read_3f32(r) or_return
+        case "CAMERA_UP": scene.cam.basis[1] = read_3f32(r) or_return
+        case "CAMERA_FORWARD": scene.cam.basis[2] = read_3f32(r) or_return
+        case "CAMERA_FOV_X": scene.cam.fov_x = read_f32(r) or_return
         case "NEW_PRIMITIVE":
             append(&scene.objects, Object{
                 rotation = quaternion(x = 0, y = 0, z = 0, w = 1),

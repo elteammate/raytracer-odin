@@ -1,6 +1,7 @@
 package raytracer
 
 import "core:c"
+import "core:sys/posix"
 import "core:flags"
 import "core:os"
 import "core:fmt"
@@ -10,21 +11,21 @@ import "core:sync"
 import "core:math/linalg"
 import "core:time"
 
-import "vendor:sdl2"
-import sdl2_image "vendor:sdl2/image"
-
 thread_init_barrier: sync.Barrier
+async_interrupt: bool = false
+
+is_interrupted :: proc() -> bool {
+    return sync.atomic_load_explicit(&async_interrupt, .Relaxed)
+}
 
 Rendering_Context :: struct {
-    dims: [2]u16,
+    dims: [2]u32,
     pixels: []u32le,
 }
 
 Rc :: ^Rendering_Context
 
-async_interrupt: bool = false
-
-create_rendering_context :: proc(dims: [2]u16) -> Rendering_Context {
+create_rendering_context :: proc(dims: [2]u32) -> Rendering_Context {
     pixels := make([]u32le, cast(int)dims.x * cast(int)dims.y)
     return Rendering_Context{
         dims = dims,
@@ -36,7 +37,7 @@ destroy_rendering_context :: proc(rendering_context: Rendering_Context) {
     delete(rendering_context.pixels)
 }
 
-rc_set_pixel :: proc(rc: Rc, pos: [2]u16, color: [3]f32) {
+rc_set_pixel :: proc(rc: Rc, pos: [2]u32, color: [3]f32) {
     assert(pos.x < rc.dims.x)
     assert(pos.y < rc.dims.y)
     i := cast(int)pos.y * cast(int)rc.dims.x + cast(int)pos.x
@@ -45,36 +46,11 @@ rc_set_pixel :: proc(rc: Rc, pos: [2]u16, color: [3]f32) {
     sync.atomic_store_explicit(&rc.pixels[i], cast(u32le)data, .Relaxed)
 }
 
-Plane :: struct { normal: [3]f32 }
-Ellipsoid :: struct { radii: [3]f32 }
-Box :: struct { extent: [3]f32 }
-
-Geometry :: union { Plane, Ellipsoid, Box }
-
-Object :: struct {
-    geometry: Geometry,
-    pos: [3]f32,
-    rotation: quaternion128,
-    color: [3]f32,
-}
-
-Scene :: struct {
-    bg_color: [3]f32,
-    cam_pos: [3]f32,
-    cam_right, cam_up, cam_forward: [3]f32,
-    cam_fov_x: f32,
-    objects: [dynamic]Object,
-}
-
-destory_scene :: proc(s: Scene) {
-    delete(s.objects)
-}
-
-Ray :: struct {
-    o, d: [3]f32,
-}
-
 main :: proc() {
+    posix.signal(.SIGINT, proc "cdecl" (_: posix.Signal) {
+        sync.atomic_store_explicit(&async_interrupt, true, .Relaxed)
+    })
+
     args: struct {
         input_handle: os.Handle `args:"pos=0,required,file=r" usage:"Input scene"`,
         output_file: string `args:"pos=1" usage:"Output image"`,
@@ -101,12 +77,7 @@ main :: proc() {
         sync.barrier_wait(&thread_init_barrier)
     }
 
-    for x in 0..<rendering_context.dims.x {
-        for y in 0..<rendering_context.dims.y {
-            rc_set_pixel(rc, {x, y}, {1.0, 1.0, 0.5})
-            // time.sleep(time.Nanosecond)
-        }
-    }
+    render_scene(rc, scene)
 
     if args.output_file != "" {
         save_result(rc, args.output_file)

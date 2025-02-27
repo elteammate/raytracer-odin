@@ -35,16 +35,15 @@ debug_window_routine :: proc(rc: Rc) {
     }
     defer sdl2.DestroyRenderer(renderer)
 
-    running := true
-    for running {
+    window_loop: for !is_interrupted() {
         for event: sdl2.Event = ---; sdl2.PollEvent(&event); {
             #partial switch event.type {
             case .QUIT:
-                running = false
+                break window_loop
             case .KEYDOWN:
                 #partial switch event.key.keysym.sym {
                 case .ESCAPE:
-                    running = false
+                    break window_loop
                 }
             }
         }
