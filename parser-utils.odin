@@ -90,26 +90,16 @@ read_f32 :: proc(r: ^bufio.Reader) -> (f32, Maybe(string)) {
     skip_whitespace(r)
 
     buf := LOCAL_BUFFER[:]
-    seen_dot := false
-    seen_sign := false
-    seen_digits := false
     i := 0
 
     for ; i < LOCAL_BUFFER_CAPACITY; i += 1 {
         b := peek_byte(r)
-        if b == '.' {
-            if seen_dot do break
-            seen_dot = true
-        } else if b == '-' || b == '+' {
-            if seen_sign || seen_digits || seen_dot do break
-            seen_sign = true
-        } else if unicode.is_digit(rune(b)) {
-            seen_digits = true
+        if b == '.' || unicode.is_digit(rune(b)) || b == '-' || b == '+' || b == 'e' {
+            buf[i] = b
+            read_byte(r)
         } else {
             break
         }
-        buf[i] = b
-        read_byte(r)
     }
 
     if i == 0 do return 0, fmt.tprintf("Expected a floating-point number but got '%c'", peek_byte(r))
