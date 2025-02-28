@@ -40,8 +40,8 @@ destroy_rendering_context :: proc(rendering_context: Rendering_Context) {
 rc_set_pixel :: proc(rc: Rc, pos: [2]u32, color: [3]f32) {
     assert(pos.x < rc.dims.x)
     assert(pos.y < rc.dims.y)
-    i := cast(int)pos.y * cast(int)rc.dims.x + cast(int)pos.x
-    rgb := linalg.to_u32(linalg.clamp(color * 256, 0, 255))
+    i := cast(int)(rc.dims.y - pos.y - 1) * cast(int)rc.dims.x + cast(int)pos.x
+    rgb := linalg.to_u32(linalg.round(linalg.clamp(color * 256, 0, 255)))
     data := rgb.r + (rgb.g << 8) + (rgb.b << 16)
     sync.atomic_store_explicit(&rc.pixels[i], cast(u32le)data, .Relaxed)
 }
@@ -55,6 +55,7 @@ main :: proc() {
         input_handle: os.Handle `args:"pos=0,required,file=r" usage:"Input scene"`,
         output_file: string `args:"pos=1" usage:"Output image"`,
         debug: bool `usage:"Enable debug window"`,
+        times: int `usage:"Number of times to render the scene"`,
     }
     flags.parse_or_exit(&args, os.args, .Unix)
     defer os.close(args.input_handle)
@@ -77,7 +78,8 @@ main :: proc() {
         sync.barrier_wait(&thread_init_barrier)
     }
 
-    render_scene(rc, scene)
+    number_of_trials := args.times if args.times > 0 else 1
+    render_scene(rc, scene, number_of_trials)
 
     if args.output_file != "" {
         save_result(rc, args.output_file)

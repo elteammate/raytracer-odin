@@ -9,3 +9,8 @@ sanitize sanitizer scene:
         -sanitize:{{sanitizer}} \
         -- {{scene}} out.png --debug
 
+brrr scene number_of_trials="64":
+    odin run . {{ODIN_FLAGS}} \
+        -o:aggressive -no-bounds-check -no-type-assert -disable-assert \
+        -- {{scene}} --times {{number_of_trials}}
+
