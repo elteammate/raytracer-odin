@@ -43,7 +43,7 @@ rc_set_pixel :: proc(rc: Rc, pos: [2]u32, color: [3]f32) {
     assert(pos.x < rc.dims.x)
     assert(pos.y < rc.dims.y)
     i := cast(int)(rc.dims.y - pos.y - 1) * cast(int)rc.dims.x + cast(int)pos.x
-    rgb := linalg.to_u32(linalg.round(linalg.clamp(color * 256, 0, 255)))
+    rgb := linalg.to_u32(linalg.round(linalg.clamp(color * 255, 0, 255)))
     data := rgb.r + (rgb.g << 8) + (rgb.b << 16)
     sync.atomic_store_explicit(&rc.pixels[i], cast(u32le)data, .Relaxed)
 }
