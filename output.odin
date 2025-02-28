@@ -4,7 +4,7 @@ import "core:os"
 import "core:c"
 import "core:strings"
 import "core:fmt"
-import stb_image "vendor:stb/image"
+// import stb_image "vendor:stb/image"
 
 get_rgb_image :: proc(rc: Rc) -> []byte {
     data := make([]byte, cast(int)rc.dims.x * cast(int)rc.dims.y * 3)
@@ -32,15 +32,15 @@ save_result :: proc(rc: Rc, file_path: string) {
         }
         fmt.fprintf(file_handle, "P6\n%d %d\n255\n", rc.dims.x, rc.dims.y)
         os.write(file_handle, rgb_image)
-    } else if strings.ends_with(file_path, ".png") {
-        stb_image.write_png(
-            c_file_path,
-            cast(c.int)rc.dims.x,
-            cast(c.int)rc.dims.y,
-            3,
-            raw_data(rgb_image),
-            0
-        )
+    // } else if strings.ends_with(file_path, ".png") {
+    //     stb_image.write_png(
+    //         c_file_path,
+    //         cast(c.int)rc.dims.x,
+    //         cast(c.int)rc.dims.y,
+    //         3,
+    //         raw_data(rgb_image),
+    //         0,
+    //     )
     } else {
         fmt.panicf("Unsupported file format: %v", file_path)
     }

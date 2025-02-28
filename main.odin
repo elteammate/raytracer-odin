@@ -86,7 +86,7 @@ main :: proc() {
     }
 
     if args.debug {
-        thread.join(debug_window_thread)
+        thread.destroy(debug_window_thread)
     }
 }
 

@@ -1,13 +1,13 @@
 ODIN_FLAGS := "-vet-shadowing -microarch:native"
 
-run scene:
+run scene out="out.ppm":
     odin run . -debug {{ODIN_FLAGS}} \
-        -- {{scene}} out.png --debug
+        -- {{scene}} {{out}} --debug
 
-sanitize sanitizer scene:
+sanitize sanitizer scene out="out.ppm":
     odin run . -debug {{ODIN_FLAGS}} \
         -sanitize:{{sanitizer}} \
-        -- {{scene}} out.png --debug
+        -- {{scene}} {{out}}
 
 brrr scene number_of_trials="64":
     odin run . {{ODIN_FLAGS}} \

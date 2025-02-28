@@ -125,6 +125,7 @@ render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
         linalg.matrix4_translate([3]f32{0.5, 0.5, 0.0})
 
     timings := make([]time.Duration, number_of_trials)
+    defer delete(timings)
     for trial in 0..<number_of_trials {
         start_instant := time.now()
 
