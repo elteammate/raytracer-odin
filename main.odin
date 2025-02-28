@@ -11,6 +11,8 @@ import "core:sync"
 import "core:math/linalg"
 import "core:time"
 
+DEBUG_FEATURES :: #config(DEBUG_FEATURES, true)
+
 thread_init_barrier: sync.Barrier
 async_interrupt: bool = false
 
@@ -72,10 +74,12 @@ main :: proc() {
 
     sync.barrier_init(&thread_init_barrier, 2)
 
-    debug_window_thread: ^thread.Thread
-    if args.debug {
-        debug_window_thread = thread.create_and_start_with_poly_data(rc, debug_window_routine)
-        sync.barrier_wait(&thread_init_barrier)
+    when DEBUG_FEATURES {
+        debug_window_thread: ^thread.Thread
+        if args.debug {
+            debug_window_thread = thread.create_and_start_with_poly_data(rc, debug_window_routine)
+            sync.barrier_wait(&thread_init_barrier)
+        }
     }
 
     number_of_trials := args.times if args.times > 0 else 1
@@ -85,8 +89,10 @@ main :: proc() {
         save_result(rc, args.output_file)
     }
 
-    if args.debug {
-        thread.destroy(debug_window_thread)
+    when DEBUG_FEATURES {
+        if args.debug {
+            thread.destroy(debug_window_thread)
+        }
     }
 }
 

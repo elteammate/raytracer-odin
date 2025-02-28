@@ -5,7 +5,6 @@ import "core:fmt"
 import "core:sync"
 
 import "vendor:sdl2"
-import sdl2_image "vendor:sdl2/image"
 
 debug_window_routine :: proc(rc: Rc) {
     sync.barrier_wait(&thread_init_barrier)
