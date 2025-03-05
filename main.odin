@@ -20,17 +20,22 @@ is_interrupted :: proc() -> bool {
     return sync.atomic_load_explicit(&async_interrupt, .Relaxed)
 }
 
-Rendering_Context :: struct {
+Rendering_Config :: struct {
     dims: [2]u32,
+    ray_depth: int,
+}
+
+Rendering_Context :: struct {
+    using cfg: Rendering_Config,
     pixels: []u32le,
 }
 
 Rc :: ^Rendering_Context
 
-create_rendering_context :: proc(dims: [2]u32) -> Rendering_Context {
-    pixels := make([]u32le, cast(int)dims.x * cast(int)dims.y)
+create_rendering_context :: proc(cfg: Rendering_Config) -> Rendering_Context {
+    pixels := make([]u32le, cast(int)cfg.dims.x * cast(int)cfg.dims.y)
     return Rendering_Context{
-        dims = dims,
+        cfg = cfg,
         pixels = pixels,
     }
 }
@@ -62,13 +67,13 @@ main :: proc() {
     flags.parse_or_exit(&args, os.args, .Unix)
     defer os.close(args.input_handle)
 
-    scene, dims, parse_error := read_scene(args.input_handle)
+    scene, cfg, parse_error := read_scene(args.input_handle)
     if parse_error != nil {
         fmt.panicf("Failed to parse scene: %v", parse_error)
     }
     defer destory_scene(scene)
 
-    rendering_context := create_rendering_context(dims)
+    rendering_context := create_rendering_context(cfg)
     defer destroy_rendering_context(rendering_context)
     rc := &rendering_context
 

@@ -23,6 +23,25 @@ Object :: struct {
     color: [3]f32,
 }
 
+Point_Light :: struct {
+    pos: [3]f32,
+    attenuation: [3]f32,
+}
+
+Directed_Light :: struct {
+    direction: [3]f32,
+}
+
+Light_Source :: union {
+    Point_Light,
+    Directed_Light,
+}
+
+Light :: struct {
+    source: Light_Source,
+    intensity: [3]f32,
+}
+
 Cam :: struct {
     pos: [3]f32,
     basis: matrix[3, 3]f32,
@@ -31,6 +50,8 @@ Cam :: struct {
 
 Scene :: struct {
     cam: Cam,
+    ambient: [3]f32,
+    lights: [dynamic]Light,
     objects: [dynamic]Object,
 }
 
@@ -57,9 +78,8 @@ intersect_ray_ellipsoid :: proc(ray: Ray, e: Ellipsoid) -> (t: f32) {
     discriminant := b * b - a * c
     if (discriminant < 0) do return -1
     discriminant_root := math.sqrt(discriminant)
-    t1 := (-b + discriminant_root) / a
-    t2 := (-b - discriminant_root) / a
-    t1, t2 = min(t1, t2), max(t1, t2)
+    t1 := (-b - discriminant_root) / a
+    t2 := (-b + discriminant_root) / a
     return t1 if t1 > 0 else t2
 }
 
@@ -126,6 +146,7 @@ render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
 
     timings := make([]time.Duration, number_of_trials)
     defer delete(timings)
+
     for trial in 0..<number_of_trials {
         start_instant := time.now()
 
