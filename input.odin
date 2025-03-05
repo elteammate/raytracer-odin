@@ -3,6 +3,7 @@ package raytracer
 import "core:os"
 import "core:fmt"
 import "core:bufio"
+import "core:math/linalg"
 
 read_scene :: proc(file_handle: os.Handle) -> (
     scene: Scene,
@@ -44,21 +45,42 @@ read_scene :: proc(file_handle: os.Handle) -> (
         case "NEW_PRIMITIVE":
             append(&scene.objects, Object{
                 conj_rotation = quaternion(x = 0, y = 0, z = 0, w = 1),
+                material_kind = .Diffuse,
             })
             current_object = &scene.objects[len(scene.objects) - 1]
-        case "PLANE": current_object.geometry = Plane{normal = read_3f32(r) or_return}
-        case "ELLIPSOID": current_object.geometry = Ellipsoid{radii = read_3f32(r) or_return}
-        case "BOX": current_object.geometry = Box{extent = read_3f32(r) or_return}
-        case "POSITION": current_object.pos = read_3f32(r) or_return
-        case "ROTATION": current_object.conj_rotation = conj(read_quat(r) or_return)
-        case "COLOR": current_object.color = read_3f32(r) or_return
+        case "PLANE":
+            current_object.geometry = Plane{normal = linalg.normalize(read_3f32(r) or_return)}
+        case "ELLIPSOID":
+            current_object.geometry = Ellipsoid{radii = read_3f32(r) or_return}
+        case "BOX":
+            current_object.geometry = Box{extent = read_3f32(r) or_return}
+        case "POSITION":
+            current_object.pos = read_3f32(r) or_return
+        case "ROTATION":
+            current_object.conj_rotation = conj(read_quat(r) or_return)
+        case "COLOR":
+            current_object.color = read_3f32(r) or_return
+        case "IOR":
+            current_object.ior = read_f32(r) or_return
+        case "METALLIC":
+            current_object.material_kind = .Metallic
+        case "DIELECTRIC":
+            current_object.material_kind = .Dielectric
 
         case "NEW_LIGHT":
             append(&scene.lights, Light{})
             current_light = &scene.lights[len(scene.lights) - 1]
-        case "LIGHT_INTENSITY": current_light.intensity = read_3f32(r) or_return
-        case "LIGHT_DIRECTION": 
-
+        case "LIGHT_INTENSITY":
+            current_light.intensity = read_3f32(r) or_return
+        case "LIGHT_DIRECTION":
+            current_light.source.directed.direction = read_3f32(r) or_return
+            current_light.kind = .Directed
+        case "LIGHT_POSITION":
+            current_light.source.point.pos = read_3f32(r) or_return
+            current_light.kind = .Point
+        case "LIGHT_ATTENUATION":
+            current_light.source.point.attenuation = read_3f32(r) or_return
+            current_light.kind = .Point
         }
         skip_line_whitespace(r)
         if peek_byte(r) == 0 do break

@@ -21,6 +21,10 @@ Object :: struct {
     pos: [3]f32,
     conj_rotation: quaternion128,
     color: [3]f32,
+    material_kind: enum u32 {
+        Diffuse, Metallic, Dielectric,
+    },
+    ior: f32,
 }
 
 Point_Light :: struct {
@@ -32,13 +36,17 @@ Directed_Light :: struct {
     direction: [3]f32,
 }
 
-Light_Source :: union {
-    Point_Light,
-    Directed_Light,
+Light_Source :: struct #raw_union {
+    point: Point_Light,
+    directed: Directed_Light,
 }
 
 Light :: struct {
     source: Light_Source,
+    kind: enum u32 {
+        Point,
+        Directed,
+    },
     intensity: [3]f32,
 }
 
@@ -63,46 +71,53 @@ Ray :: struct {
     o, d: [3]f32,
 }
 
-intersect_ray_plane :: proc(ray: Ray, plane: Plane) -> (t: f32) {
-    n := plane.normal
+intersect_ray_plane :: proc(ray: Ray, plane: Plane) -> (t: f32, p: [3]f32, n: [3]f32) {
+    n = plane.normal
+    p = ray.o + t * ray.d
     t = -dot(ray.o, n) / dot(ray.d, n)
-    return t
+    return
 }
 
-intersect_ray_ellipsoid :: proc(ray: Ray, e: Ellipsoid) -> (t: f32) {
+intersect_ray_ellipsoid :: proc(ray: Ray, e: Ellipsoid) -> (t: f32, p: [3]f32, n: [3]f32) {
     o_div_r := ray.o / e.radii
     d_div_r := ray.d / e.radii
     a := dot(d_div_r, d_div_r)
     b := dot(o_div_r, d_div_r)
     c := dot(o_div_r, o_div_r) - 1
     discriminant := b * b - a * c
-    if (discriminant < 0) do return -1
+    if (discriminant < 0) do return -1, n, p
     discriminant_root := math.sqrt(discriminant)
     t1 := (-b - discriminant_root) / a
     t2 := (-b + discriminant_root) / a
-    return t1 if t1 > 0 else t2
+    t = t1 if t1 > 0 else t2
+    p = ray.o + t * ray.d
+    n = linalg.normalize(p / (e.radii * e.radii))
+    return
 }
 
-intersect_ray_box :: proc(ray: Ray, box: Box) -> (t: f32) {
+intersect_ray_box :: proc(ray: Ray, box: Box) -> (t: f32, p: [3]f32, n: [3]f32) {
     t1_raw := (box.extent - ray.o) / ray.d
     t2_raw := (-box.extent - ray.o) / ray.d
     t_min := linalg.min(t1_raw, t2_raw)
     t_max := linalg.max(t1_raw, t2_raw)
     t1 := max(t_min.x, t_min.y, t_min.z)
     t2 := min(t_max.x, t_max.y, t_max.z)
-    if t1 > t2 do return -1
-    return t1 if t1 > 0 else t2
+    if t1 > t2 do return -1, n, p
+    t = t1 if t1 > 0 else t2
+    p = ray.o + t * ray.d
+    n = linalg.step(linalg.abs(p) + 1e-6, box.extent) * linalg.sign(p)
+    return
 }
 
 Hit :: struct {
     object_id: int,
     t: f32,
+    p, n: [3]f32,
     color: [3]f32,
 }
 
 cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
-    hit_t := max_dist
-    object_id := 0
+    hit.t = max_dist
 
     for object, i in scene.objects {
         if i == 0 do continue
@@ -113,22 +128,27 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
         }
 
         t: f32 = ---
+        p, n: [3]f32 = ---, ---
         switch geometry in object.geometry {
-        case Plane: t = intersect_ray_plane(local_ray, geometry)
-        case Ellipsoid: t = intersect_ray_ellipsoid(local_ray, geometry)
-        case Box: t = intersect_ray_box(local_ray, geometry)
+        case Plane:
+            t, p, n = intersect_ray_plane(local_ray, geometry)
+        case Ellipsoid:
+            t, p, n = intersect_ray_ellipsoid(local_ray, geometry)
+        case Box:
+            t, p, n = intersect_ray_box(local_ray, geometry)
         }
-        if t > 0 && t < hit_t {
-            hit_t = t
-            object_id = i
+        if t > 0 && t < hit.t {
+            hit = {
+                t = t, p = p, n = n,
+                object_id = i,
+                // color is set later
+            }
         }
     }
 
-    return Hit{
-        object_id = object_id,
-        t = hit_t,
-        color = scene.objects[object_id].color,
-    }
+    hit.color = scene.objects[hit.object_id].color
+
+    return
 }
 
 render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
