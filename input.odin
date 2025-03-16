@@ -44,7 +44,7 @@ read_scene :: proc(file_handle: os.Handle) -> (
 
         case "NEW_PRIMITIVE":
             append(&scene.objects, Object{
-                conj_rotation = quaternion(x = 0, y = 0, z = 0, w = 1),
+                rotation = quaternion(x = 0, y = 0, z = 0, w = 1),
                 material_kind = .Diffuse,
             })
             current_object = &scene.objects[len(scene.objects) - 1]
@@ -57,7 +57,7 @@ read_scene :: proc(file_handle: os.Handle) -> (
         case "POSITION":
             current_object.pos = read_3f32(r) or_return
         case "ROTATION":
-            current_object.conj_rotation = conj(read_quat(r) or_return)
+            current_object.rotation = read_quat(r) or_return
         case "COLOR":
             current_object.color = read_3f32(r) or_return
         case "IOR":
