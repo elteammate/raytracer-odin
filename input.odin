@@ -31,7 +31,7 @@ read_scene :: proc(file_handle: os.Handle) -> (
             cfg.dims.x = cast(u32)read_int(r) or_return
             cfg.dims.y = cast(u32)read_int(r) or_return
         case "RAY_DEPTH":
-            cfg.ray_depth = read_int(r) or_return
+            cfg.ray_depth = cast(i32)read_int(r) or_return
 
         case "AMBIENT_LIGHT": scene.ambient = read_3f32(r) or_return
         case "BG_COLOR": scene.objects[0].color = read_3f32(r) or_return

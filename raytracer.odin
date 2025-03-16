@@ -133,6 +133,7 @@ Hit :: struct {
     object_id: int,
     t: f32,
     p, n: [3]f32,
+    inside: bool,
 }
 
 cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
@@ -143,10 +144,9 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
         if i == 0 do continue
 
         conj_rotation := conj(object.rotation)
-        local_ray := Ray{
-            o = linalg.mul(conj_rotation, ray.o - object.pos),
-            d = linalg.mul(conj_rotation, ray.d),
-        }
+        local_d := linalg.mul(conj_rotation, ray.d)
+        local_o := linalg.mul(conj_rotation, ray.o - object.pos) + local_d * 1e-3
+        local_ray := Ray{o = local_o, d = local_d}
 
         gh: Geometry_Hit = ---
         switch geometry in object.geometry {
@@ -160,7 +160,7 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
         if gh.t > 0 && gh.t < hit.t {
             hit = {
                 t = gh.t, n = linalg.mul(object.rotation, gh.n),
-                object_id = i,
+                object_id = i, inside = gh.inside,
                 // p is set later
             }
         }
@@ -171,8 +171,18 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
     return
 }
 
-raytrace :: proc(scene: Scene, ray: Ray, depth_left: int) -> [3]f32 {
+raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
+    if depth_left == 0 do return scene.ambient
+
     hit := cast_ray(scene, ray, math.INF_F32)
+
+    debug_log_ray({
+        ray = ray,
+        t = hit.t,
+        level = depth_left,
+    })
+
+    if hit.inside do hit.n = -hit.n
 
     object := scene.objects[hit.object_id]
 
@@ -180,41 +190,91 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: int) -> [3]f32 {
         return object.color
     }
 
-    total_intensity: [3]f32 = 0
+    exitance: [3]f32
+    switch object.material_kind {
+    case .Diffuse:
+        total_intensity: [3]f32 = 0
 
-    for light in scene.lights[1:] {
-        dist: f32 = math.INF_F32
-        d: [3]f32 = ---
-        intensity: [3]f32 = ---
+        for light in scene.lights[1:] {
+            dist: f32 = math.INF_F32
+            d: [3]f32 = ---
+            intensity: [3]f32 = ---
 
-        switch light.kind {
-        case .Point:
-            point_light := light.source.point
-            dist = linalg.distance(hit.p, point_light.pos)
-            d = linalg.normalize(point_light.pos - hit.p)
-            attenuation := light.source.point.attenuation
-            intensity = light.intensity / (
-                attenuation.x +
-                attenuation.y * dist +
-                attenuation.z * dist * dist \
-            )
-        case .Directed:
-            directed_light := light.source.directed
-            d = directed_light.direction
-            intensity = light.intensity
+            switch light.kind {
+            case .Point:
+                point_light := light.source.point
+                dist = linalg.distance(hit.p, point_light.pos)
+                d = linalg.normalize(point_light.pos - hit.p)
+                attenuation := light.source.point.attenuation
+                intensity = light.intensity / (
+                    attenuation.x +
+                    attenuation.y * dist +
+                    attenuation.z * dist * dist \
+                )
+            case .Directed:
+                directed_light := light.source.directed
+                d = directed_light.direction
+                intensity = light.intensity
+            }
+
+            light_ray := Ray{o = hit.p, d = d}
+            light_hit := cast_ray(scene, light_ray, dist)
+
+            debug_log_ray({
+                ray = light_ray,
+                t = light_hit.t,
+                level = -1,
+            })
+
+            if light_hit.object_id == 0 {
+                total_intensity += intensity * max(dot(hit.n, d), 0)
+            }
         }
 
-        light_hit := cast_ray(scene, Ray{
-            o = hit.p + d * 1e-3,
-            d = d,
-        }, dist)
+        exitance = total_intensity * object.color
 
-        if light_hit.object_id == 0 {
-            total_intensity += intensity
+    case .Metallic:
+        reflected := ray.d - 2 * dot(hit.n, ray.d) * hit.n
+
+        irradiance := raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1)
+
+        exitance = object.color * irradiance
+
+    case .Dielectric:
+        rel_ior := object.ior if hit.inside else 1 / object.ior
+        cos_theta1 := -dot(hit.n, ray.d)
+        sin_theta2 := math.sqrt(1 - sq(cos_theta1)) * object.ior
+
+        if sin_theta2 < 1 {
+            base_reflection := sq((rel_ior - 1) / (rel_ior + 1))
+            ratio := base_reflection + (1 - base_reflection) * math.pow(1 - cos_theta1, 5)
+            cos_theta2 := math.sqrt(1 - sq(sin_theta2))
+            refracted := ray.d * rel_ior + hit.n * (rel_ior * cos_theta1 - cos_theta2)
+            reflected := ray.d + 2 * cos_theta1 * hit.n
+
+            color_coef := object.color if !hit.inside else 1
+
+            exitance = linalg.lerp(
+                color_coef * raytrace(scene, Ray{o = hit.p, d = refracted}, depth_left - 1),
+                raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1),
+                ratio,
+            )
+            rc_set_pixel(debug_info.rc, debug_info.pixel, reflected, 1)
+            rc_set_pixel(debug_info.rc, debug_info.pixel, refracted, 2)
+            rc_set_pixel(debug_info.rc, debug_info.pixel, hit.n, 3)
+            if hit.inside {
+                rc_set_pixel(debug_info.rc, debug_info.pixel, 1, 4)
+            }
+        } else {
+            reflected := ray.d + 2 * cos_theta1 * hit.n
+            exitance = raytrace(scene, Ray{
+                o = hit.p,
+                d = reflected,
+            }, depth_left - 1)
         }
     }
 
-    return object.color * total_intensity
+    return exitance
 }
 
 @(thread_local) debug_info: struct {

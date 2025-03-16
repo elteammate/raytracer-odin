@@ -2,11 +2,14 @@ package raytracer
 
 import "core:c"
 import "core:fmt"
+import sa "core:container/small_array"
 import "core:sync"
+import "core:math/linalg"
+import "core:math"
 
 import "vendor:sdl2"
 
-debug_window_routine :: proc(rc: Rc) {
+debug_window_routine :: proc(rc: Rc, scene: ^Scene) {
     sync.barrier_wait(&thread_init_barrier)
 
     if error := sdl2.Init({.VIDEO}); error < 0 {
@@ -89,6 +92,38 @@ debug_window_routine :: proc(rc: Rc) {
             w = cast(c.int)rc.dims.x, h = cast(c.int)rc.dims.y,
         }
         sdl2.RenderCopy(renderer, texture, nil, &rect)
+
+        when EXPENSIVE_DEBUG {
+            mouse_position: [2]c.int
+            sdl2.GetMouseState(&mouse_position.x, &mouse_position.y)
+            i := mouse_position.y * cast(c.int)rc.dims.x + mouse_position.x
+            #reverse for cast_ in sa.slice(&rc.ray_logs[i]) {
+                p1, p2 := line_to_screen(
+                    rc, &scene.cam,
+                    cast_.ray.o,
+                    cast_.ray.o + cast_.ray.d * min(cast_.t, 1e2)
+                )
+                if !linalg.is_nan(p1.x) {
+                    if cast_.level == -1 {
+                        sdl2.SetRenderDrawColor(renderer, 255, 255, 0, 120)
+                    } else {
+                        sdl2.SetRenderDrawColor(
+                            renderer,
+                            cast(u8)(cast_.level & 1) * 255,
+                            cast(u8)((cast_.level >> 1) & 1) * 255,
+                            cast(u8)((cast_.level >> 2) & 1) * 255,
+                            255
+                        )
+                    }
+                    sdl2.RenderDrawLine(
+                        renderer,
+                        cast(c.int)p1.x, cast(c.int)p1.y,
+                        cast(c.int)p2.x, cast(c.int)p2.y,
+                    )
+                }
+            }
+        }
+
         sdl2.RenderPresent(renderer)
     }
 

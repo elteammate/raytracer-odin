@@ -57,9 +57,10 @@ get_rgb_image :: proc(rc: Rc, layer: int = 0, mode: Output_Mode = .Mean) -> []by
                 raw.r = isnan.r ? 100 : raw.r
                 raw.g = isinf.g ? 100 : raw.g
             }
-            tone_mapped := tone_mapping_aces(raw);
-            gamma_corrected := linalg.pow(tone_mapped, 1 / 2.2);
-            rgb := linalg.to_u8(linalg.round(gamma_corrected * 255));
+            raw = linalg.max(raw, 0)
+            tone_mapped := tone_mapping_aces(raw)
+            gamma_corrected := linalg.pow(tone_mapped, 1 / 2.2)
+            rgb := linalg.to_u8(linalg.round(gamma_corrected * 255))
             // fmt.printfln("%v %v", samples, rgb)
             data[i * 3 + 0] = rgb.r
             data[i * 3 + 1] = rgb.g
