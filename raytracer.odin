@@ -133,7 +133,6 @@ Hit :: struct {
     object_id: int,
     t: f32,
     p, n: [3]f32,
-    color: [3]f32,
 }
 
 cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
@@ -162,7 +161,7 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
             hit = {
                 t = gh.t, n = linalg.mul(object.rotation, gh.n),
                 object_id = i,
-                // p and color are set later
+                // p is set later
             }
         }
     }
@@ -173,7 +172,54 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
 }
 
 raytrace :: proc(scene: Scene, ray: Ray, depth_left: int) -> [3]f32 {
-    return scene.objects[0].color
+    hit := cast_ray(scene, ray, math.INF_F32)
+
+    object := scene.objects[hit.object_id]
+
+    if hit.object_id == 0 {
+        return object.color
+    }
+
+    total_intensity: [3]f32 = 0
+
+    for light in scene.lights[1:] {
+        dist: f32 = math.INF_F32
+        d: [3]f32 = ---
+        intensity: [3]f32 = ---
+
+        switch light.kind {
+        case .Point:
+            point_light := light.source.point
+            dist = linalg.distance(hit.p, point_light.pos)
+            d = linalg.normalize(point_light.pos - hit.p)
+            attenuation := light.source.point.attenuation
+            intensity = light.intensity / (
+                attenuation.x +
+                attenuation.y * dist +
+                attenuation.z * dist * dist \
+            )
+        case .Directed:
+            directed_light := light.source.directed
+            d = directed_light.direction
+            intensity = light.intensity
+        }
+
+        light_hit := cast_ray(scene, Ray{
+            o = hit.p + d * 1e-3,
+            d = d,
+        }, dist)
+
+        if light_hit.object_id == 0 {
+            total_intensity += intensity
+        }
+    }
+
+    return object.color * total_intensity
+}
+
+@(thread_local) debug_info: struct {
+    rc: Rc,
+    pixel: [2]u32,
 }
 
 render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
@@ -201,9 +247,14 @@ render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
 
                 direction := linalg.normalize((pixel_to_ray_dir * raw_pixel).xyz)
 
-                hit := cast_ray(scene, Ray{scene.cam.pos, direction}, math.INF_F32)
+                debug_info = {
+                    rc = rc,
+                    pixel = {px, py},
+                }
 
-                rc_set_pixel(rc, {px, py}, hit.color)
+                color := raytrace(scene, Ray{scene.cam.pos, direction}, rc.ray_depth)
+
+                rc_set_pixel(rc, {px, py}, color, 0)
 
                 if is_interrupted() do return
             }

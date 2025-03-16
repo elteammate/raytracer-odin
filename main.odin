@@ -25,32 +25,48 @@ Rendering_Config :: struct {
     ray_depth: int,
 }
 
+Sample_Stats :: struct {
+    first: [3]f32,
+    count: u32,
+    last: [3]f32,
+    total: [3]f32,
+    total_squared: [3]f32,
+}
+
+NUM_LAYERS :: 10 when DEBUG_FEATURES else 1
+
 Rendering_Context :: struct {
     using cfg: Rendering_Config,
-    pixels: []u32le,
+    pixels: [NUM_LAYERS][]Sample_Stats,
 }
 
 Rc :: ^Rendering_Context
 
-create_rendering_context :: proc(cfg: Rendering_Config) -> Rendering_Context {
-    pixels := make([]u32le, cast(int)cfg.dims.x * cast(int)cfg.dims.y)
-    return Rendering_Context{
-        cfg = cfg,
-        pixels = pixels,
+create_rendering_context :: proc(cfg: Rendering_Config) -> (rc: Rendering_Context) {
+    rc.cfg = cfg
+    for &layer in rc.pixels {
+        layer = make([]Sample_Stats, cast(int)cfg.dims.x * cast(int)cfg.dims.y)
     }
+    return
 }
 
 destroy_rendering_context :: proc(rendering_context: Rendering_Context) {
-    delete(rendering_context.pixels)
+    for layer in rendering_context.pixels do delete(layer)
 }
 
-rc_set_pixel :: proc(rc: Rc, pos: [2]u32, color: [3]f32) {
+rc_set_pixel :: proc(rc: Rc, pos: [2]u32, color: [3]f32, $layer: int) {
+    when !DEBUG_FEATURES {
+        if layer != 0 do return
+    }
     assert(pos.x < rc.dims.x)
     assert(pos.y < rc.dims.y)
     i := cast(int)(rc.dims.y - pos.y - 1) * cast(int)rc.dims.x + cast(int)pos.x
-    rgb := linalg.to_u32(linalg.round(linalg.clamp(color * 255, 0, 255)))
-    data := rgb.r + (rgb.g << 8) + (rgb.b << 16)
-    sync.atomic_store_explicit(&rc.pixels[i], cast(u32le)data, .Relaxed)
+    pixel := &rc.pixels[layer][i]
+    if pixel.count == 0 do pixel.first = color
+    pixel.count += 1
+    pixel.last = color
+    pixel.total += color
+    pixel.total_squared += color * color
 }
 
 main :: proc() {

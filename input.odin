@@ -73,7 +73,7 @@ read_scene :: proc(file_handle: os.Handle) -> (
         case "LIGHT_INTENSITY":
             current_light.intensity = read_3f32(r) or_return
         case "LIGHT_DIRECTION":
-            current_light.source.directed.direction = read_3f32(r) or_return
+            current_light.source.directed.direction = linalg.normalize(read_3f32(r) or_return)
             current_light.kind = .Directed
         case "LIGHT_POSITION":
             current_light.source.point.pos = read_3f32(r) or_return

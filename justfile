@@ -2,6 +2,7 @@ ODIN_FLAGS := "-vet-shadowing -microarch:native"
 
 run scene out="out.ppm":
     odin run . -debug {{ODIN_FLAGS}} \
+        -o:aggressive -no-bounds-check -no-type-assert -disable-assert \
         -- {{scene}} {{out}} --debug
 
 sanitize sanitizer scene out="out.ppm":

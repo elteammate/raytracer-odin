@@ -2,18 +2,68 @@ package raytracer
 
 import "core:os"
 import "core:c"
+import "core:math/linalg"
 import "core:strings"
 import "core:fmt"
 // import stb_image "vendor:stb/image"
 
-get_rgb_image :: proc(rc: Rc) -> []byte {
+Output_Mode :: enum {
+    Mean,
+    Variance,
+    First,
+    Last,
+    Count,
+    Hash,
+    NanInf,
+}
+
+tone_mapping_aces :: proc(x: $T/[$N]$F) -> T {
+    a :: 2.51
+    b :: 0.03
+    c :: 2.43
+    d :: 0.59
+    e :: 0.14
+    return linalg.clamp((x*(a*x+b))/(x*(c*x+d)+e), 0, 1);
+}
+
+get_rgb_image :: proc(rc: Rc, layer: int = 0, mode: Output_Mode = .Mean) -> []byte {
     data := make([]byte, cast(int)rc.dims.x * cast(int)rc.dims.y * 3)
     for y := 0; y < cast(int)rc.dims.y; y += 1 {
         for x := 0; x < cast(int)rc.dims.x; x += 1 {
             i := y * cast(int)rc.dims.x + x
-            data[i * 3 + 0] = byte(rc.pixels[i])
-            data[i * 3 + 1] = byte(rc.pixels[i] >> 8)
-            data[i * 3 + 2] = byte(rc.pixels[i] >> 16)
+            samples := rc.pixels[layer][i];
+            raw: [3]f32
+            switch mode {
+            case .Mean: raw = samples.total / cast(f32)samples.count
+            case .Variance:
+                raw = samples.total_squared / cast(f32)samples.count
+                raw -= sq(samples.total / cast(f32)samples.count)
+            case .First: raw = samples.first
+            case .Last: raw = samples.last
+            case .Count:
+                raw = {
+                    cast(f32)samples.count,
+                    cast(f32)samples.count / 10,
+                    cast(f32)samples.count / 100,
+                }
+            case .Hash:
+                reprs := transmute([3]u32)samples.total
+                hash := (reprs * 87334379) & 0xFF
+                raw = 1 + linalg.to_f32(hash) / 256
+            case .NanInf:
+                isnan := linalg.is_nan(samples.total)
+                isinf := linalg.is_inf(samples.total)
+                raw = tone_mapping_aces(samples.total / cast(f32)samples.count) / 10
+                raw.r = isnan.r ? 100 : raw.r
+                raw.g = isinf.g ? 100 : raw.g
+            }
+            tone_mapped := tone_mapping_aces(raw);
+            gamma_corrected := linalg.pow(tone_mapped, 1 / 2.2);
+            rgb := linalg.to_u8(linalg.round(gamma_corrected * 255));
+            // fmt.printfln("%v %v", samples, rgb)
+            data[i * 3 + 0] = rgb.r
+            data[i * 3 + 1] = rgb.g
+            data[i * 3 + 2] = rgb.b
         }
     }
     return data
