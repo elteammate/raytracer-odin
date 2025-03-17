@@ -103,6 +103,7 @@ intersect_ray_ellipsoid :: proc(ray: Ray, e: Ellipsoid) -> (hit: Geometry_Hit) {
     discriminant_root := math.sqrt(discriminant)
     t1 := (-b - discriminant_root) / a
     t2 := (-b + discriminant_root) / a
+    assert(t2 >= t1)
     inside = t1 < 0
     t = t2 if inside else t1
     p := ray.o + t * ray.d
@@ -125,7 +126,7 @@ intersect_ray_box :: proc(ray: Ray, box: Box) -> (hit: Geometry_Hit) {
     inside = t1 < 0
     t = t2 if inside else t1
     p := ray.o + t * ray.d
-    n = linalg.step(box.extent, linalg.abs(p) + 1e-6) * linalg.sign(p)
+    n = linalg.step(box.extent, linalg.abs(p) + 1e-4) * linalg.sign(p)
     return
 }
 
@@ -139,13 +140,16 @@ Hit :: struct {
 cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
     hit.object_id = 0
     hit.t = max_dist
+    RAY_EPS :: 1e-3
+
+    assert(abs(linalg.length2(ray.d) - 1) < 1e-4)
 
     for object, i in scene.objects {
         if i == 0 do continue
 
         conj_rotation := conj(object.rotation)
         local_d := linalg.mul(conj_rotation, ray.d)
-        local_o := linalg.mul(conj_rotation, ray.o - object.pos) + local_d * 1e-3
+        local_o := linalg.mul(conj_rotation, ray.o - object.pos) + local_d * RAY_EPS
         local_ray := Ray{o = local_o, d = local_d}
 
         gh: Geometry_Hit = ---
@@ -166,6 +170,7 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
         }
     }
 
+    hit.t += RAY_EPS
     hit.p = ray.o + hit.t * ray.d
 
     return
@@ -243,29 +248,29 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
     case .Dielectric:
         rel_ior := object.ior if hit.inside else 1 / object.ior
         cos_theta1 := -dot(hit.n, ray.d)
-        sin_theta2 := math.sqrt(1 - sq(cos_theta1)) * object.ior
+        sin_theta2 := math.sqrt(1 - sq(cos_theta1)) * rel_ior
 
         if sin_theta2 < 1 {
             base_reflection := sq((rel_ior - 1) / (rel_ior + 1))
             ratio := base_reflection + (1 - base_reflection) * math.pow(1 - cos_theta1, 5)
             cos_theta2 := math.sqrt(1 - sq(sin_theta2))
             refracted := ray.d * rel_ior + hit.n * (rel_ior * cos_theta1 - cos_theta2)
+            refracted = linalg.normalize(refracted)
             reflected := ray.d + 2 * cos_theta1 * hit.n
 
             color_coef := object.color if !hit.inside else 1
 
-            exitance = linalg.lerp(
-                color_coef * raytrace(scene, Ray{o = hit.p, d = refracted}, depth_left - 1),
-                raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1),
-                ratio,
-            )
-            rc_set_pixel(debug_info.rc, debug_info.pixel, reflected, 1)
-            rc_set_pixel(debug_info.rc, debug_info.pixel, refracted, 2)
-            rc_set_pixel(debug_info.rc, debug_info.pixel, hit.n, 3)
-            if hit.inside {
-                rc_set_pixel(debug_info.rc, debug_info.pixel, 1, 4)
+            if ratio < 1e-3 {
+                exitance = color_coef * raytrace(scene, Ray{o = hit.p, d = refracted}, depth_left - 1)
+            } else {
+                exitance = linalg.lerp(
+                    color_coef * raytrace(scene, Ray{o = hit.p, d = refracted}, depth_left - 1),
+                    raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1),
+                    ratio,
+                )
             }
         } else {
+            rc_set_pixel(debug_info.rc, debug_info.pixel, 1, 1)
             reflected := ray.d + 2 * cos_theta1 * hit.n
             exitance = raytrace(scene, Ray{
                 o = hit.p,

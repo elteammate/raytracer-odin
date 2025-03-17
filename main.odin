@@ -81,11 +81,19 @@ rc_set_pixel :: proc(rc: Rc, pos: [2]u32, color: [3]f32, layer: int) {
     pixel.total_squared += color * color
 }
 
-debug_rc_set :: proc(color: [3]f32, layer: int) {
+debug_rc_set_float :: proc(color: [3]f32, layer: int) {
     when DEBUG_FEATURES {
         rc_set_pixel(debug_info.rc, debug_info.pixel, color, layer)
     }
 }
+
+debug_rc_set_bool :: proc(value: bool, layer: int) {
+    when DEBUG_FEATURES {
+        rc_set_pixel(debug_info.rc, debug_info.pixel, f32(u8(value)), layer)
+    }
+}
+
+debug_rc_set :: proc{debug_rc_set_float, debug_rc_set_bool}
 
 debug_log_ray :: proc(info: Cast_Info) {
     when EXPENSIVE_DEBUG {
