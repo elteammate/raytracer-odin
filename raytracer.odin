@@ -198,7 +198,7 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
     exitance: [3]f32
     switch object.material_kind {
     case .Diffuse:
-        total_intensity: [3]f32 = 0
+        total_intensity: [3]f32 = scene.ambient
 
         for light in scene.lights[1:] {
             dist: f32 = math.INF_F32
@@ -270,7 +270,6 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
                 )
             }
         } else {
-            rc_set_pixel(debug_info.rc, debug_info.pixel, 1, 1)
             reflected := ray.d + 2 * cos_theta1 * hit.n
             exitance = raytrace(scene, Ray{
                 o = hit.p,
