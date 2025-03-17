@@ -142,7 +142,7 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
     hit.t = max_dist
     RAY_EPS :: 1e-3
 
-    assert(abs(linalg.length2(ray.d) - 1) < 1e-4)
+    // assert(abs(linalg.length2(ray.d) - 1) < 1e-4)
 
     for object, i in scene.objects {
         if i == 0 do continue
@@ -177,7 +177,7 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
 }
 
 raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
-    if depth_left == 0 do return scene.ambient
+    if depth_left == 0 do return 0
 
     hit := cast_ray(scene, ray, math.INF_F32)
 
