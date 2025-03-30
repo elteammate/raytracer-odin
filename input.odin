@@ -51,11 +51,14 @@ read_scene :: proc(file_handle: os.Handle) -> (
             })
             current_object = &scene.objects[len(scene.objects) - 1]
         case "PLANE":
-            current_object.geometry = Plane{normal = linalg.normalize(read_3f32(r) or_return)}
+            current_object.geometry.data.plane = Plane{normal = linalg.normalize(read_3f32(r) or_return)}
+            current_object.geometry.kind = .Plane
         case "ELLIPSOID":
-            current_object.geometry = Ellipsoid{radii = read_3f32(r) or_return}
+            current_object.geometry.data.ellipsoid = Ellipsoid{radii = read_3f32(r) or_return}
+            current_object.geometry.kind = .Ellipsoid
         case "BOX":
-            current_object.geometry = Box{extent = read_3f32(r) or_return}
+            current_object.geometry.data.box = Box{extent = read_3f32(r) or_return}
+            current_object.geometry.kind = .Box
         case "POSITION":
             current_object.pos = read_3f32(r) or_return
         case "ROTATION":
