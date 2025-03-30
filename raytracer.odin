@@ -5,6 +5,7 @@ import "core:sync"
 import "core:math"
 import "core:slice"
 import "core:testing"
+import "core:math/rand"
 import "core:math/linalg"
 import "core:time"
 
@@ -21,12 +22,14 @@ Object :: struct {
     pos: [3]f32,
     rotation: quaternion128,
     color: [3]f32,
+    emission: [3]f32,
     material_kind: enum u32 {
         Diffuse, Metallic, Dielectric,
     },
     ior: f32,
 }
 
+/*
 Point_Light :: struct {
     pos: [3]f32,
     attenuation: [3]f32,
@@ -49,6 +52,7 @@ Light :: struct {
     },
     intensity: [3]f32,
 }
+*/
 
 Cam :: struct {
     pos: [3]f32,
@@ -58,8 +62,8 @@ Cam :: struct {
 
 Scene :: struct {
     cam: Cam,
-    ambient: [3]f32,
-    lights: [dynamic]Light,
+    // ambient: [3]f32,
+    // lights: [dynamic]Light,
     objects: [dynamic]Object,
 }
 
@@ -176,7 +180,7 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
     return
 }
 
-raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
+raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) {
     if depth_left == 0 do return 0
 
     hit := cast_ray(scene, ray, math.INF_F32)
@@ -195,11 +199,11 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
         return object.color
     }
 
-    exitance: [3]f32
     switch object.material_kind {
     case .Diffuse:
-        total_intensity: [3]f32 = scene.ambient
+        // total_intensity: [3]f32 = scene.ambient
 
+        /*
         for light in scene.lights[1:] {
             dist: f32 = math.INF_F32
             d: [3]f32 = ---
@@ -235,13 +239,19 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
                 total_intensity += intensity * max(dot(hit.n, d), 0)
             }
         }
+        */
 
-        exitance = total_intensity * object.color
+        // exitance = total_intensity * object.color
+
+        reflected := halfsphere_uniform(hit.n)
+        exitance = raytrace(scene, Ray{hit.p, reflected}, depth_left - 1)
+        exitance *= 2 * object.color * linalg.dot(reflected, hit.n)
 
     case .Metallic:
         reflected := ray.d - 2 * dot(hit.n, ray.d) * hit.n
 
-        irradiance := raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1)
+        irradiance: [3]f32
+        irradiance = raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1)
 
         exitance = object.color * irradiance
 
@@ -260,14 +270,10 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
 
             color_coef := object.color if !hit.inside else 1
 
-            if ratio < 1e-3 {
+            if rand.float32() > ratio {
                 exitance = color_coef * raytrace(scene, Ray{o = hit.p, d = refracted}, depth_left - 1)
             } else {
-                exitance = linalg.lerp(
-                    color_coef * raytrace(scene, Ray{o = hit.p, d = refracted}, depth_left - 1),
-                    raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1),
-                    ratio,
-                )
+                exitance = raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1)
             }
         } else {
             reflected := ray.d + 2 * cos_theta1 * hit.n
@@ -277,6 +283,8 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> [3]f32 {
             }, depth_left - 1)
         }
     }
+
+    exitance += object.emission
 
     return exitance
 }
@@ -296,8 +304,7 @@ render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
         linalg.matrix4_from_matrix3(scene.cam.basis) *
         linalg.matrix4_scale([3]f32{tan_fov_x, tan_fov_y, 1}) *
         linalg.matrix4_translate([3]f32{-1, -1, 1}) *
-        linalg.matrix4_scale(1 / [3]f32{dims_f32.x / 2, dims_f32.y / 2, 1}) *
-        linalg.matrix4_translate([3]f32{0.5, 0.5, 0.0})
+        linalg.matrix4_scale(1 / [3]f32{dims_f32.x / 2, dims_f32.y / 2, 1})
 
     timings := make([]time.Duration, number_of_trials)
     defer delete(timings)
@@ -305,22 +312,28 @@ render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
     for trial in 0..<number_of_trials {
         start_instant := time.now()
 
-        for px in 0..<rc.dims.x {
-            for py in 0..<rc.dims.y {
-                raw_pixel := [4]f32{cast(f32)px, cast(f32)py, 0.0, 1.0}
+        for sample in 0..<rc.samples {
+            for px in 0..<rc.dims.x {
+                for py in 0..<rc.dims.y {
+                    raw_pixel := [4]f32{
+                        cast(f32)px + rand.float32(),
+                        cast(f32)py + rand.float32(),
+                        0.0, 1.0
+                    }
 
-                direction := linalg.normalize((pixel_to_ray_dir * raw_pixel).xyz)
+                    direction := linalg.normalize((pixel_to_ray_dir * raw_pixel).xyz)
 
-                debug_info = {
-                    rc = rc,
-                    pixel = {px, py},
+                    debug_info = {
+                        rc = rc,
+                        pixel = {px, py},
+                    }
+
+                    exitance := raytrace(scene, Ray{scene.cam.pos, direction}, rc.ray_depth)
+
+                    rc_set_pixel(rc, {px, py}, exitance, 0)
+
+                    if is_interrupted() do return
                 }
-
-                color := raytrace(scene, Ray{scene.cam.pos, direction}, rc.ray_depth)
-
-                rc_set_pixel(rc, {px, py}, color, 0)
-
-                if is_interrupted() do return
             }
         }
 

@@ -13,6 +13,7 @@ Output_Mode :: enum {
     First,
     Last,
     Count,
+    Weight,
     Hash,
     NanInf,
 }
@@ -40,6 +41,14 @@ get_rgb_image :: proc(rc: Rc, layer: int = 0, mode: Output_Mode = .Mean) -> []by
                 raw -= sq(samples.total / cast(f32)samples.count)
             case .First: raw = samples.first
             case .Last: raw = samples.last
+            case .Weight:
+                /*
+                raw = {
+                    samples.total_weight,
+                    samples.total_weight / 10,
+                    samples.total_weight / 100,
+                }
+                */
             case .Count:
                 raw = {
                     cast(f32)samples.count,

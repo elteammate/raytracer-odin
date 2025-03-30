@@ -63,9 +63,10 @@ debug_window_routine :: proc(rc: Rc, scene: ^Scene) {
                 case .W: mode = .Variance
                 case .E: mode = .First
                 case .R: mode = .Last
-                case .T: mode = .Count
-                case .Y: mode = .Hash
-                case .U: mode = .NanInf
+                case .T: mode = .Weight
+                case .Y: mode = .Count
+                case .U: mode = .Hash
+                case .I: mode = .NanInf
                 }
                 fmt.printfln("Layer: %d, Mode: %s", layer, mode)
             }

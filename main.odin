@@ -25,6 +25,7 @@ is_interrupted :: proc() -> bool {
 Rendering_Config :: struct {
     dims: [2]u32,
     ray_depth: i32,
+    samples: int,
 }
 
 Sample_Stats :: struct {
@@ -113,7 +114,9 @@ main :: proc() {
         output_file: string `args:"pos=1" usage:"Output image"`,
         debug: bool `usage:"Enable debug window"`,
         times: int `usage:"Number of times to render the scene"`,
+        continious: bool `usage:"Ignore sample limit and render until interrupted"`
     }
+
     flags.parse_or_exit(&args, os.args, .Unix)
     defer os.close(args.input_handle)
 
@@ -122,6 +125,8 @@ main :: proc() {
         fmt.panicf("Failed to parse scene: %v", parse_error)
     }
     defer destory_scene(scene)
+
+    if args.continious do cfg.samples = max(int)
 
     rendering_context := create_rendering_context(cfg)
     defer destroy_rendering_context(rendering_context)

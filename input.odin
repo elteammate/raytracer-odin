@@ -17,11 +17,11 @@ read_scene :: proc(file_handle: os.Handle) -> (
     bufio.reader_init(r, stream)
     defer bufio.reader_destroy(r)
 
-    current_light: ^Light = nil
+    // current_light: ^Light = nil
     current_object: ^Object = nil
 
     append(&scene.objects, Object{})
-    append(&scene.lights, Light{})
+    // append(&scene.lights, Light{})
 
     skip_line_whitespace(r)
     for {
@@ -32,8 +32,10 @@ read_scene :: proc(file_handle: os.Handle) -> (
             cfg.dims.y = cast(u32)read_int(r) or_return
         case "RAY_DEPTH":
             cfg.ray_depth = cast(i32)read_int(r) or_return
+        case "SAMPLES":
+            cfg.samples = read_int(r) or_return
 
-        case "AMBIENT_LIGHT": scene.ambient = read_3f32(r) or_return
+        // case "AMBIENT_LIGHT": scene.ambient = read_3f32(r) or_return
         case "BG_COLOR": scene.objects[0].color = read_3f32(r) or_return
 
         case "CAMERA_POSITION": scene.cam.pos = read_3f32(r) or_return
@@ -66,7 +68,10 @@ read_scene :: proc(file_handle: os.Handle) -> (
             current_object.material_kind = .Metallic
         case "DIELECTRIC":
             current_object.material_kind = .Dielectric
+        case "EMISSION":
+            current_object.emission = read_3f32(r) or_return
 
+        /*
         case "NEW_LIGHT":
             append(&scene.lights, Light{})
             current_light = &scene.lights[len(scene.lights) - 1]
@@ -81,6 +86,7 @@ read_scene :: proc(file_handle: os.Handle) -> (
         case "LIGHT_ATTENUATION":
             current_light.source.point.attenuation = read_3f32(r) or_return
             current_light.kind = .Point
+        */
         }
         skip_line_whitespace(r)
         if peek_byte(r) == 0 do break
