@@ -11,20 +11,11 @@ import "core:time"
 
 dot :: linalg.dot
 
-Plane :: struct #align(16) { normal: [3]f32 }
-Ellipsoid :: struct #align(16) { radii: [3]f32 }
-Box :: struct #align(16) { extent: [3]f32 }
+Plane :: struct { normal: [3]f32 }
+Ellipsoid :: struct { radii: [3]f32 }
+Box :: struct { extent: [3]f32 }
 
-Geometry_Data :: struct #align(16) #raw_union {
-    plane: Plane,
-    ellipsoid: Ellipsoid,
-    box: Box
-}
-
-Geometry :: struct {
-    data: Geometry_Data,
-    kind: enum u32 { Plane, Ellipsoid, Box },
-}
+Geometry :: union { Plane, Ellipsoid, Box }
 
 Object :: struct {
     geometry: Geometry,
@@ -166,13 +157,13 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
         local_ray := Ray{o = local_o, d = local_d}
 
         gh: Geometry_Hit = ---
-        switch object.geometry.kind {
-        case .Plane:
-            gh = intersect_ray_plane(local_ray, object.geometry.data.plane)
-        case .Ellipsoid:
-            gh = intersect_ray_ellipsoid(local_ray, object.geometry.data.ellipsoid)
-        case .Box:
-            gh = intersect_ray_box(local_ray, object.geometry.data.box)
+        switch geometry in object.geometry {
+        case Plane:
+            gh = intersect_ray_plane(local_ray, geometry)
+        case Ellipsoid:
+            gh = intersect_ray_ellipsoid(local_ray, geometry)
+        case Box:
+            gh = intersect_ray_box(local_ray, geometry)
         }
         if gh.t > 0 && gh.t < hit.t {
             hit = {
