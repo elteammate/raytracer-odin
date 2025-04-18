@@ -145,6 +145,8 @@ main :: proc() {
         }
     }
 
+    finish_scene(&scene)
+
     number_of_trials := args.times if args.times > 0 else 1
     render_scene(rc, scene, number_of_trials)
 

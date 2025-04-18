@@ -65,10 +65,20 @@ Scene :: struct {
     // ambient: [3]f32,
     // lights: [dynamic]Light,
     objects: [dynamic]Object,
+    light_surfaces: [dynamic]Object,
+}
+
+finish_scene :: proc(s: ^Scene) {
+    for object, i in s.objects {
+        if _, is_plane := object.geometry.(Plane); !is_plane && norm_l1(object.emission) > 1e-6 {
+            append(&s.light_surfaces, object)
+        }
+    }
 }
 
 destory_scene :: proc(s: Scene) {
     delete(s.objects)
+    delete(s.light_surfaces)
 }
 
 Ray :: struct {
@@ -79,7 +89,7 @@ Ray :: struct {
 // and other fields have arbitrary values
 Geometry_Hit :: struct {
     inside: bool,
-    n: [3]f32,
+    n, p: [3]f32,
     t: f32,
 }
 
@@ -89,6 +99,7 @@ intersect_ray_plane :: proc(ray: Ray, plane: Plane) -> (hit: Geometry_Hit) {
     o_dot_n := dot(ray.o, n)
     t = -o_dot_n / dot(ray.d, n)
     inside = o_dot_n < 0
+    p = ray.o + t * ray.d
     return
 }
 
@@ -110,7 +121,7 @@ intersect_ray_ellipsoid :: proc(ray: Ray, e: Ellipsoid) -> (hit: Geometry_Hit) {
     fmt.assertf(!(t2 < t1), "%v %v", t1, t2)
     inside = t1 < 0
     t = t2 if inside else t1
-    p := ray.o + t * ray.d
+    p = ray.o + t * ray.d
     n = linalg.normalize(p / (e.radii * e.radii))
     return
 }
@@ -129,7 +140,7 @@ intersect_ray_box :: proc(ray: Ray, box: Box) -> (hit: Geometry_Hit) {
     }
     inside = t1 < 0
     t = t2 if inside else t1
-    p := ray.o + t * ray.d
+    p = ray.o + t * ray.d
     n = linalg.step(box.extent, linalg.abs(p) + 1e-4) * linalg.sign(p)
     return
 }
@@ -141,14 +152,14 @@ Hit :: struct {
     inside: bool,
 }
 
-cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
+cast_ray :: proc(objects: []Object, ray: Ray, max_dist: f32) -> (hit: Hit) {
     hit.object_id = 0
     hit.t = max_dist
     RAY_EPS :: 1e-3
 
     // assert(abs(linalg.length2(ray.d) - 1) < 1e-4)
 
-    for object, i in scene.objects {
+    for object, i in objects {
         if i == 0 do continue
 
         conj_rotation := conj(object.rotation)
@@ -183,7 +194,7 @@ cast_ray :: proc(scene: Scene, ray: Ray, max_dist: f32) -> (hit: Hit) {
 raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) {
     if depth_left == 0 do return 0
 
-    hit := cast_ray(scene, ray, math.INF_F32)
+    hit := cast_ray(scene.objects[:], ray, math.INF_F32)
 
     debug_log_ray({
         ray = ray,
@@ -246,9 +257,24 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) 
         // reflected := halfsphere_uniform(hit.n)
         // exitance = raytrace(scene, Ray{hit.p, reflected}, depth_left - 1)
         // exitance *= 2 * object.color * linalg.dot(reflected, hit.n)
-        reflected := cosine_weighted(hit.n)
-        exitance = raytrace(scene, Ray{hit.p, reflected}, depth_left - 1)
-        exitance *= object.color
+
+        cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 0.5 : 1.0
+        reflected: [3]f32
+        if rand.float32() <= cosine_weighted_weight {
+            reflected = cosine_weighted(hit.n)
+        } else {
+            reflected = surface_sampling(scene.light_surfaces[:], hit.p)
+        }
+        pdf := len(scene.light_surfaces) > 0 ? math.lerp(
+            surface_sampling_pdf(scene.light_surfaces[:], hit.p, reflected),
+            cosine_weighted_pdf(hit.n, reflected),
+            cosine_weighted_weight,
+        ) : cosine_weighted_pdf(hit.n, reflected)
+        cosine := linalg.dot(reflected, hit.n)
+        if pdf > 1e-6 && cosine > 0 {
+            irradiance := raytrace(scene, Ray{hit.p, reflected}, depth_left - 1)
+            exitance = object.color / math.PI * irradiance * cosine / pdf
+        }
 
     case .Metallic:
         reflected := ray.d - 2 * dot(hit.n, ray.d) * hit.n

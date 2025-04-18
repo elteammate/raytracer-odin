@@ -29,10 +29,82 @@ halfsphere_uniform_pdf :: proc(n: [3]f32, omega: [3]f32) -> f32 {
 
 cosine_weighted :: proc(n: [3]f32) -> [3]f32 {
     sphere := sphere_uniform() + n
-    return linalg.normalize0(sphere)
+    return linalg.normalize(sphere)
 }
 
 cosine_weighted_pdf :: proc(n: [3]f32, omega: [3]f32) -> f32 {
     return max(linalg.dot(n, omega) / math.PI, 0)
+}
+
+surface_sampling :: proc(objects: []Object, origin: [3]f32) -> [3]f32 {
+    object_index := rand.int_max(len(objects))
+    object := objects[object_index]
+    local: [3]f32
+    switch geometry in object.geometry {
+    case Plane:
+        panic("Cannot sample a point on a plane")
+    case Ellipsoid:
+        local = sphere_uniform() * geometry.radii
+    case Box:
+        areas := linalg.abs(geometry.extent.yzx * geometry.extent.zxy)
+        w := rand.float32_range(0, norm_l1(areas) * 2)
+        x := rand.float32_range(-1, 1)
+        y := rand.float32_range(-1, 1)
+        if w < areas.x {
+            local = geometry.extent * {1, x, y}
+        } else if w < 2 * areas.x {
+            local = geometry.extent * {-1, x, y}
+        } else if w < 2 * areas.x + areas.y {
+            local = geometry.extent * {x, 1, y}
+        } else if w < 2 * areas.x + 2 * areas.y {
+            local = geometry.extent * {x, -1, y}
+        } else if w < 2 * areas.x + 2 * areas.y + areas.z {
+            local = geometry.extent * {x, y, 1}
+        } else {
+            local = geometry.extent * {x, y, -1}
+        }
+    }
+    world := object.pos + linalg.mul(object.rotation, local)
+    return linalg.normalize(world - origin)
+}
+
+surface_sampling_pdf :: proc(objects: []Object, origin: [3]f32, omega: [3]f32) -> (p: f32) {
+    ray := Ray{o = origin, d = omega}
+    for object in objects {
+        conj_rotation := conj(object.rotation)
+        local_d := linalg.mul(conj_rotation, ray.d)
+        local_o := linalg.mul(conj_rotation, ray.o - object.pos)
+        local_ray := Ray{o = local_o, d = local_d}
+
+        switch geometry in object.geometry {
+        case Plane:
+            panic("Cannot sample a point on a plane")
+        case Ellipsoid:
+            hit := intersect_ray_ellipsoid(local_ray, geometry)
+            if !(hit.t >= 0) do continue
+            xy := local_o - hit.p
+            weight := linalg.length2(xy) / abs(linalg.dot(hit.n, omega))
+            p += 1 / (4 * math.PI * linalg.length(hit.p / geometry.radii * geometry.radii.yzx * geometry.radii.zxy)) * weight
+            local_ray.o = hit.p + local_ray.d * 1e-4
+            hit = intersect_ray_ellipsoid(local_ray, geometry)
+            if !(hit.t >= 0) do continue
+            xy = local_o - hit.p
+            weight = linalg.length2(xy) / abs(linalg.dot(hit.n, omega))
+            p += 1 / (4 * math.PI * linalg.length(hit.p / geometry.radii * geometry.radii.yzx * geometry.radii.zxy)) * weight
+        case Box:
+            hit := intersect_ray_box(local_ray, geometry)
+            if !(hit.t >= 0) do continue
+            xy := local_o - hit.p
+            weight := linalg.length2(xy) / abs(linalg.dot(hit.n, omega))
+            p += 0.125 / norm_l1(linalg.abs(geometry.extent.xyz * geometry.extent.yzx)) * weight
+            local_ray.o = hit.p + local_ray.d * 1e-4
+            hit = intersect_ray_box(local_ray, geometry)
+            if !(hit.t >= 0) do continue
+            xy = local_o - hit.p
+            weight = linalg.length2(xy) / abs(linalg.dot(hit.n, omega))
+            p += 0.125 / norm_l1(linalg.abs(geometry.extent.xyz * geometry.extent.yzx)) * weight
+        }
+    }
+    return p / f32(len(objects))
 }
 

@@ -7,6 +7,10 @@ sq :: #force_inline proc(x: $T) -> T {
     return x * x
 }
 
+norm_l1 :: #force_inline proc(x: [3]$T) -> T {
+    return math.abs(x.x) + math.abs(x.y) + math.abs(x.z)
+}
+
 world_to_screen :: proc(rc: Rc, cam: ^Cam, point: [3]f32) -> [2]f32 {
     p := point - cam.pos
     p = linalg.inverse(cam.basis) * p
