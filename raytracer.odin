@@ -116,7 +116,7 @@ intersect_ray_ellipsoid :: proc(ray: Ray, e: Ellipsoid) -> (hit: Geometry_Hit) {
     discriminant_root := math.sqrt(discriminant)
     t1 := (-b - discriminant_root) / a
     t2 := (-b + discriminant_root) / a
-    assert(t2 >= t1)
+    fmt.assertf(!(t2 < t1), "%v %v", t1, t2)
     inside = t1 < 0
     t = t2 if inside else t1
     p := ray.o + t * ray.d
@@ -252,9 +252,12 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) 
 
         // exitance = total_intensity * object.color
 
-        reflected := halfsphere_uniform(hit.n)
+        // reflected := halfsphere_uniform(hit.n)
+        // exitance = raytrace(scene, Ray{hit.p, reflected}, depth_left - 1)
+        // exitance *= 2 * object.color * linalg.dot(reflected, hit.n)
+        reflected := cosine_weighted(hit.n)
         exitance = raytrace(scene, Ray{hit.p, reflected}, depth_left - 1)
-        exitance *= 2 * object.color * linalg.dot(reflected, hit.n)
+        exitance *= object.color
 
     case .Metallic:
         reflected := ray.d - 2 * dot(hit.n, ray.d) * hit.n
