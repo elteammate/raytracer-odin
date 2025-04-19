@@ -73,7 +73,7 @@ surface_sampling_pdf :: proc(objects: []Object, origin: [3]f32, omega: [3]f32) -
     for object in objects {
         conj_rotation := conj(object.rotation)
         local_d := linalg.mul(conj_rotation, ray.d)
-        local_o := linalg.mul(conj_rotation, ray.o - object.pos)
+        local_o := linalg.mul(conj_rotation, ray.o - object.pos) + 1e-3 * local_d
         local_ray := Ray{o = local_o, d = local_d}
 
         switch geometry in object.geometry {

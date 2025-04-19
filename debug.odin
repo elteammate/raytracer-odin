@@ -102,7 +102,7 @@ debug_window_routine :: proc(rc: Rc, scene: ^Scene) {
                 p1, p2 := line_to_screen(
                     rc, &scene.cam,
                     cast_.ray.o,
-                    cast_.ray.o + cast_.ray.d * min(cast_.t, 1e2)
+                    cast_.ray.o + cast_.ray.d * min(cast_.t, 1e4)
                 )
                 if !linalg.is_nan(p1.x) {
                     if cast_.level == -1 {
