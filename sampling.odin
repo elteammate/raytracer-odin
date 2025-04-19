@@ -83,25 +83,25 @@ surface_sampling_pdf :: proc(objects: []Object, origin: [3]f32, omega: [3]f32) -
             hit := intersect_ray_ellipsoid(local_ray, geometry)
             if !(hit.t >= 0) do continue
             xy := local_o - hit.p
-            weight := linalg.length2(xy) / abs(linalg.dot(hit.n, omega))
+            weight := linalg.length2(xy) / abs(linalg.dot(hit.n, local_d))
             p += 1 / (4 * math.PI * linalg.length(hit.p / geometry.radii * geometry.radii.yzx * geometry.radii.zxy)) * weight
-            local_ray.o = hit.p + local_ray.d * 1e-4
+            local_ray.o = hit.p + local_d * 1e-4
             hit = intersect_ray_ellipsoid(local_ray, geometry)
             if !(hit.t >= 0) do continue
             xy = local_o - hit.p
-            weight = linalg.length2(xy) / abs(linalg.dot(hit.n, omega))
+            weight = linalg.length2(xy) / abs(linalg.dot(hit.n, local_d))
             p += 1 / (4 * math.PI * linalg.length(hit.p / geometry.radii * geometry.radii.yzx * geometry.radii.zxy)) * weight
         case Box:
             hit := intersect_ray_box(local_ray, geometry)
             if !(hit.t >= 0) do continue
             xy := local_o - hit.p
-            weight := linalg.length2(xy) / abs(linalg.dot(hit.n, omega))
+            weight := linalg.length2(xy) / abs(linalg.dot(hit.n, local_d))
             p += 0.125 / norm_l1(linalg.abs(geometry.extent.xyz * geometry.extent.yzx)) * weight
-            local_ray.o = hit.p + local_ray.d * 1e-4
+            local_ray.o = hit.p + local_d * 1e-4
             hit = intersect_ray_box(local_ray, geometry)
             if !(hit.t >= 0) do continue
             xy = local_o - hit.p
-            weight = linalg.length2(xy) / abs(linalg.dot(hit.n, omega))
+            weight = linalg.length2(xy) / abs(linalg.dot(hit.n, local_d))
             p += 0.125 / norm_l1(linalg.abs(geometry.extent.xyz * geometry.extent.yzx)) * weight
         }
     }

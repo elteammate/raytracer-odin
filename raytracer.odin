@@ -71,7 +71,9 @@ Scene :: struct {
 finish_scene :: proc(s: ^Scene) {
     for object, i in s.objects {
         if _, is_plane := object.geometry.(Plane); !is_plane && norm_l1(object.emission) > 1e-6 {
-            append(&s.light_surfaces, object)
+            if _, is_ellipse := object.geometry.(Ellipsoid); !is_ellipse {
+                append(&s.light_surfaces, object)
+            }
         }
     }
 }
@@ -141,7 +143,7 @@ intersect_ray_box :: proc(ray: Ray, box: Box) -> (hit: Geometry_Hit) {
     inside = t1 < 0
     t = t2 if inside else t1
     p = ray.o + t * ray.d
-    n = linalg.step(box.extent, linalg.abs(p) + 1e-4) * linalg.sign(p)
+    n = linalg.step(box.extent, linalg.abs(p) + 1e-6) * linalg.sign(p)
     return
 }
 
