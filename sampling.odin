@@ -63,6 +63,11 @@ surface_sampling :: proc(objects: []Object, origin: [3]f32) -> [3]f32 {
         } else {
             local = geometry.extent * {x, y, -1}
         }
+    case Triangle:
+        u := rand.float32_range(0, 1)
+        v := rand.float32_range(0, 1)
+        if u + v > 1 do u, v = 1 - u, 1 - v
+        local = geometry.p + u * geometry.u + v * geometry.v
     }
     world := object.pos + linalg.mul(object.rotation, local)
     return linalg.normalize(world - origin)
@@ -103,6 +108,12 @@ surface_sampling_pdf :: proc(objects: []Object, origin: [3]f32, omega: [3]f32) -
             xy = local_o - hit.p
             weight = linalg.length2(xy) / abs(linalg.dot(hit.n, local_d))
             p += 0.125 / norm_l1(linalg.abs(geometry.extent.xyz * geometry.extent.yzx)) * weight
+        case Triangle:
+            hit := intersect_ray_triangle(local_ray, geometry)
+            if !(hit.t >= 0) do continue
+            xy := local_o - hit.p
+            weight := linalg.length2(xy) / abs(linalg.dot(hit.n, local_d))
+            p += 2 / linalg.length(linalg.cross(geometry.u, geometry.v)) * weight
         }
     }
     return p / f32(len(objects))

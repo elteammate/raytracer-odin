@@ -56,6 +56,13 @@ read_scene :: proc(file_handle: os.Handle) -> (
             current_object.geometry = Ellipsoid{radii = read_3f32(r) or_return}
         case "BOX":
             current_object.geometry = Box{extent = read_3f32(r) or_return}
+        case "TRIANGLE":
+            a := read_3f32(r) or_return
+            b := read_3f32(r) or_return
+            c := read_3f32(r) or_return
+            p, u, v := a, b - a, c - a
+            n := linalg.normalize(linalg.cross(u, v))
+            current_object.geometry = Triangle{p = p, u = u, v = v, n = n}
         case "POSITION":
             current_object.pos = read_3f32(r) or_return
         case "ROTATION":

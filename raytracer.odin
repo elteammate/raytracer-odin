@@ -14,8 +14,9 @@ dot :: linalg.dot
 Plane :: struct { normal: [3]f32 }
 Ellipsoid :: struct { radii: [3]f32 }
 Box :: struct { extent: [3]f32 }
+Triangle :: struct { p, u, v, n: [3]f32 }
 
-Geometry :: union { Plane, Ellipsoid, Box }
+Geometry :: union { Plane, Ellipsoid, Box, Triangle }
 
 Object :: struct {
     geometry: Geometry,
@@ -71,9 +72,7 @@ Scene :: struct {
 finish_scene :: proc(s: ^Scene) {
     for object, i in s.objects {
         if _, is_plane := object.geometry.(Plane); !is_plane && norm_l1(object.emission) > 1e-6 {
-            if _, is_ellipse := object.geometry.(Ellipsoid); !is_ellipse {
-                append(&s.light_surfaces, object)
-            }
+            append(&s.light_surfaces, object)
         }
     }
 }
@@ -147,6 +146,22 @@ intersect_ray_box :: proc(ray: Ray, box: Box) -> (hit: Geometry_Hit) {
     return
 }
 
+intersect_ray_triangle :: proc(ray: Ray, trig: Triangle) -> (hit: Geometry_Hit) {
+    b := ray.o - trig.p
+    a: matrix[3, 3]f32
+    a[0] = trig.v
+    a[1] = trig.u
+    a[2] = -ray.d
+    u, v, t := expand_values(linalg.inverse(a) * b)
+    if u < 0 || v < 0 || u + v > 1 do return Geometry_Hit{t = -1}
+    return Geometry_Hit{
+        t = t,
+        p = ray.o + t * ray.d,
+        n = trig.n,
+        inside = dot(trig.n, ray.d) > 0,
+    }
+}
+
 Hit :: struct {
     object_id: int,
     t: f32,
@@ -177,6 +192,8 @@ cast_ray :: proc(objects: []Object, ray: Ray, max_dist: f32) -> (hit: Hit) {
             gh = intersect_ray_ellipsoid(local_ray, geometry)
         case Box:
             gh = intersect_ray_box(local_ray, geometry)
+        case Triangle:
+            gh = intersect_ray_triangle(local_ray, geometry)
         }
         if gh.t > 0 && gh.t < hit.t {
             hit = {
