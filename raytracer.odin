@@ -33,31 +33,6 @@ Object :: struct {
     ior: f32,
 }
 
-/*
-Point_Light :: struct {
-    pos: [3]f32,
-    attenuation: [3]f32,
-}
-
-Directed_Light :: struct {
-    direction: [3]f32,
-}
-
-Light_Source :: struct #raw_union {
-    point: Point_Light,
-    directed: Directed_Light,
-}
-
-Light :: struct {
-    source: Light_Source,
-    kind: enum u32 {
-        Point,
-        Directed,
-    },
-    intensity: [3]f32,
-}
-*/
-
 Cam :: struct {
     pos: [3]f32,
     basis: matrix[3, 3]f32,
@@ -66,8 +41,6 @@ Cam :: struct {
 
 Scene :: struct {
     cam: Cam,
-    // ambient: [3]f32,
-    // lights: [dynamic]Light,
     objects: [dynamic]Object,
     light_surfaces: [dynamic]Object,
     standalone_objects: [dynamic]Object,
@@ -575,52 +548,6 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
 
     switch object.material_kind {
     case .Diffuse:
-        // total_intensity: [3]f32 = scene.ambient
-
-        /*
-        for light in scene.lights[1:] {
-            dist: f32 = math.INF_F32
-            d: [3]f32 = ---
-            intensity: [3]f32 = ---
-
-            switch light.kind {
-            case .Point:
-                point_light := light.source.point
-                dist = linalg.distance(hit.p, point_light.pos)
-                d = linalg.normalize(point_light.pos - hit.p)
-                attenuation := light.source.point.attenuation
-                intensity = light.intensity / (
-                    attenuation.x +
-                    attenuation.y * dist +
-                    attenuation.z * dist * dist \
-                )
-            case .Directed:
-                directed_light := light.source.directed
-                d = directed_light.direction
-                intensity = light.intensity
-            }
-
-            light_ray := Ray{o = hit.p, d = d}
-            light_hit := cast_ray(scene, light_ray, dist)
-
-            debug_log_ray({
-                ray = light_ray,
-                t = light_hit.t,
-                level = -1,
-            })
-
-            if light_hit.object_id == 0 {
-                total_intensity += intensity * max(dot(hit.n, d), 0)
-            }
-        }
-        */
-
-        // exitance = total_intensity * object.color
-
-        // reflected := halfsphere_uniform(hit.n)
-        // exitance = raytrace(scene, Ray{hit.p, reflected}, depth_left - 1)
-        // exitance *= 2 * object.color * linalg.dot(reflected, hit.n)
-
         cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 0.5 : 1.0
         reflected_ray := Ray{o = hit.p}
         if rand.float32() <= cosine_weighted_weight {
