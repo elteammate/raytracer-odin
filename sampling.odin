@@ -147,7 +147,7 @@ surface_sampling_pdf_bvh_sum :: proc(
     return p
 }
 
-surface_sampling_pdf :: proc(scene: Scene, ray: Ray) -> (p: f32) {
+surface_sampling_pdf :: proc(scene: ^Scene, ray: Ray) -> (p: f32) {
     objects_pdf := surface_sampling_pdf_objects_sum(scene.standalone_lights[:], ray)
     objects_pdf += surface_sampling_pdf_bvh_sum(scene.light_bvh[:], scene.light_surfaces[:], ray)
     return objects_pdf / f32(len(scene.light_surfaces))

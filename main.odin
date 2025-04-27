@@ -26,6 +26,7 @@ Rendering_Config :: struct {
     dims: [2]u32,
     ray_depth: i32,
     samples: int,
+    threads: int,
 }
 
 Sample_Stats :: struct {
@@ -156,7 +157,8 @@ main :: proc() {
         output_file: string `args:"pos=1" usage:"Output image"`,
         debug: bool `usage:"Enable debug window"`,
         times: int `usage:"Number of times to render the scene"`,
-        continious: bool `usage:"Ignore sample limit and render until interrupted"`
+        continious: bool `usage:"Ignore sample limit and render until interrupted"`,
+        threads: int `usage:"Number of threads to use"`,
     }
 
     flags.parse_or_exit(&args, os.args, .Unix)
@@ -166,9 +168,14 @@ main :: proc() {
     if parse_error != nil {
         fmt.panicf("Failed to parse scene: %v", parse_error)
     }
-    defer destory_scene(scene)
+    defer destory_scene(&scene)
 
     if args.continious do cfg.samples = max(int)
+    if args.threads > 0 {
+        cfg.threads = args.threads
+    } else {
+        cfg.threads = max(os.processor_core_count(), 1)
+    }
 
     rendering_context := create_rendering_context(cfg)
     rc := &rendering_context
@@ -190,7 +197,7 @@ main :: proc() {
     finish_scene(rc, &scene)
 
     number_of_trials := args.times if args.times > 0 else 1
-    render_scene(rc, scene, number_of_trials)
+    render_scene(rc, &scene, number_of_trials)
 
     if args.output_file != "" {
         save_result(rc, args.output_file)

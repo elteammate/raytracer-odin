@@ -10,6 +10,7 @@ import "core:testing"
 import "core:math/rand"
 import "core:math/linalg"
 import "core:time"
+import "core:thread"
 
 dot :: linalg.dot
 
@@ -109,7 +110,7 @@ finish_scene :: proc(rc: Rc, s: ^Scene) {
 
 }
 
-destory_scene :: proc(s: Scene) {
+destory_scene :: proc(s: ^Scene) {
     delete(s.objects)
     delete(s.light_surfaces)
     delete(s.standalone_objects)
@@ -534,7 +535,7 @@ cast_ray_through_bvh :: proc(bvh: []BVH_Node, ray: Ray, max_dist: f32) -> (hit: 
     return hit
 }
 
-cast_ray :: proc(scene: Scene, global_ray: Ray, max_dist: f32) -> (hit: Hit) {
+cast_ray :: proc(scene: ^Scene, global_ray: Ray, max_dist: f32) -> (hit: Hit) {
     max_dist := max_dist
     RAY_EPS :: 1e-3
     ray := Ray{
@@ -553,7 +554,7 @@ cast_ray :: proc(scene: Scene, global_ray: Ray, max_dist: f32) -> (hit: Hit) {
     return hit
 }
 
-raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) {
+raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) {
     if depth_left == 0 do return 0
 
     hit := cast_ray(scene, ray, math.INF_F32)
@@ -634,7 +635,7 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) 
             cosine_weighted_weight,
         ) : cosine_weighted_pdf(hit.n, reflected_ray.d)
         cosine := linalg.dot(reflected_ray.d, hit.n)
-        if pdf > 1e-6 && cosine > 0 {
+        if cosine > 0 && norm_l1(object.color) * cosine / pdf > 1e-5 {
             irradiance := raytrace(scene, reflected_ray, depth_left - 1)
             exitance = object.color / math.PI * irradiance * cosine / pdf
         }
@@ -694,7 +695,10 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) 
     pixel: [2]u32,
 }
 
-render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
+RENDERING_TILE_SIZE :: 4
+RENDERING_TILE_SAMPLES :: 32
+
+render_task :: proc(rc: Rc, scene: ^Scene, tile_id: ^u64) {
     dims_f32 := linalg.to_f32(rc.dims)
     aspect_ratio := dims_f32.x / dims_f32.y
     tan_fov_x := math.tan(scene.cam.fov_x / 2)
@@ -706,15 +710,45 @@ render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
         linalg.matrix4_translate([3]f32{-1, -1, 1}) *
         linalg.matrix4_scale(1 / [3]f32{dims_f32.x / 2, dims_f32.y / 2, 1})
 
-    timings := make([]time.Duration, number_of_trials)
-    defer delete(timings)
+    total_tasks: u64
+    dim_x := ceil_div(cast(u64)rc.dims.x, RENDERING_TILE_SIZE)
+    dim_y := ceil_div(cast(u64)rc.dims.y, RENDERING_TILE_SIZE)
+    if rc.samples == max(int) {
+        total_tasks = max(u64)
+    } else {
+        total_tasks = ceil_div(cast(u64)rc.samples, RENDERING_TILE_SAMPLES) *
+            dim_x * dim_y
+    }
 
-    for trial in 0..<number_of_trials {
-        start_instant := time.now()
+    for {
+        id := sync.atomic_add_explicit(tile_id, 1, .Relaxed)
 
-        for sample in 0..<rc.samples {
-            for px in 0..<rc.dims.x {
-                for py in 0..<rc.dims.y {
+        if is_interrupted() do break
+        if id >= total_tasks do break
+
+        sample_coord, x_coord, y_coord: u64
+        id, y_coord = math.divmod(id, dim_y)
+        id, x_coord = math.divmod(id, dim_x)
+        sample_coord = id
+
+        num_samples := min(
+            RENDERING_TILE_SAMPLES,
+            u64(rc.samples) - RENDERING_TILE_SAMPLES * sample_coord
+        )
+        start_x := RENDERING_TILE_SIZE * cast(u32)x_coord
+        end_x := min(
+            cast(u32)start_x + RENDERING_TILE_SIZE,
+            rc.dims.x
+        )
+        start_y := RENDERING_TILE_SIZE * cast(u32)y_coord
+        end_y := min(
+            cast(u32)start_y + RENDERING_TILE_SIZE,
+            rc.dims.y
+        )
+
+        for sample in 0..<num_samples {
+            for px in start_x..<end_x {
+                for py in start_y..<end_y {
                     raw_pixel := [4]f32{
                         cast(f32)px + rand.float32(),
                         cast(f32)py + rand.float32(),
@@ -731,10 +765,33 @@ render_scene :: proc(rc: Rc, scene: Scene, number_of_trials: int = 1) {
                     exitance := raytrace(scene, Ray{scene.cam.pos, direction}, rc.ray_depth)
 
                     rc_set_pixel(rc, {px, py}, exitance, 0)
-
-                    if is_interrupted() do return
                 }
             }
+        }
+    }
+}
+
+render_scene :: proc(rc: Rc, scene: ^Scene, number_of_trials: int = 1) {
+    timings := make([]time.Duration, number_of_trials)
+    defer delete(timings)
+
+    for trial in 0..<number_of_trials {
+        start_instant := time.now()
+
+        num_threads := rc.threads - 1
+        tile_id: u64 = 0
+        fmt.printfln("Launching %v threads", num_threads)
+
+        threads: sa.Small_Array(256, ^thread.Thread)
+        for i in 0..<num_threads {
+            t := thread.create_and_start_with_poly_data3(rc, scene, &tile_id, render_task)
+            sa.append(&threads, t)
+        }
+
+        render_task(rc, scene, &tile_id)
+
+        for t in sa.slice(&threads) {
+            thread.join(t)
         }
 
         end_instant := time.now()

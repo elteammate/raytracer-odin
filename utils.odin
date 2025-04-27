@@ -15,6 +15,10 @@ compsum :: #force_inline proc(x: [3]$T) -> T {
     return x.x + x.y + x.z
 }
 
+ceil_div :: #force_inline proc(x, y: $T) -> T {
+    return (x + y - 1) / y
+}
+
 world_to_screen :: proc(rc: Rc, cam: ^Cam, point: [3]f32) -> [2]f32 {
     p := point - cam.pos
     p = linalg.inverse(cam.basis) * p
