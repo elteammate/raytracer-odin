@@ -8,7 +8,11 @@ sq :: #force_inline proc(x: $T) -> T {
 }
 
 norm_l1 :: #force_inline proc(x: [3]$T) -> T {
-    return math.abs(x.x) + math.abs(x.y) + math.abs(x.z)
+    return compsum(linalg.abs(x))
+}
+
+compsum :: #force_inline proc(x: [3]$T) -> T {
+    return x.x + x.y + x.z
 }
 
 world_to_screen :: proc(rc: Rc, cam: ^Cam, point: [3]f32) -> [2]f32 {
@@ -29,7 +33,7 @@ world_to_screen :: proc(rc: Rc, cam: ^Cam, point: [3]f32) -> [2]f32 {
 }
 
 // ChatGPT-ed code!!!
-line_to_screen :: proc(rc: Rc, cam: ^Cam, p0_world, p1_world: [3]f32) -> ([2]f32, [2]f32) {
+line_to_screen :: proc(rc: Rc, cam: ^Cam, p0_world, p1_world: [3]f32) -> (s1, s2: [2]f32, ok: bool) {
     // Transform endpoints to camera space.
     p0 := p0_world - cam.pos
     p1 := p1_world - cam.pos
@@ -73,8 +77,8 @@ line_to_screen :: proc(rc: Rc, cam: ^Cam, p0_world, p1_world: [3]f32) -> ([2]f32
         !clip(right_plane, tan_fov_x, &p0, &p1) ||
         !clip(bottom_plane, tan_fov_y, &p0, &p1) ||
         !clip(top_plane, tan_fov_y, &p0, &p1)) {
-        nan := [2]f32{math.nan_f32(), math.nan_f32()}
-        return nan, nan
+        ok = false
+        return
     }
 
     // Helper to project a clipped camera–space point to screen space.
@@ -86,5 +90,5 @@ line_to_screen :: proc(rc: Rc, cam: ^Cam, p0_world, p1_world: [3]f32) -> ([2]f32
     screen1 := screen01_1 * dims_f32
     screen0.y = dims_f32.y - screen0.y // Flip y.
     screen1.y = dims_f32.y - screen1.y // Flip y.
-    return screen0, screen1
+    return screen0, screen1, true
 }

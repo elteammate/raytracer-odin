@@ -39,6 +39,8 @@ debug_window_routine :: proc(rc: Rc, scene: ^Scene) {
 
     layer: int = 0
     mode: Output_Mode = .Mean
+    rendering_tag: u32 = 0
+    render_rays: bool = true
 
     window_loop: for !is_interrupted() {
         for event: sdl2.Event = ---; sdl2.PollEvent(&event); {
@@ -67,8 +69,11 @@ debug_window_routine :: proc(rc: Rc, scene: ^Scene) {
                 case .Y: mode = .Count
                 case .U: mode = .Hash
                 case .I: mode = .NanInf
+                case .Z: render_rays = !render_rays
+                case .C: rendering_tag += 1
+                case .X: rendering_tag -= 1
                 }
-                fmt.printfln("Layer: %d, Mode: %s", layer, mode)
+                fmt.printfln("Layer: %d, Mode: %s, tag: %d", layer, mode, rendering_tag)
             }
         }
 
@@ -94,34 +99,53 @@ debug_window_routine :: proc(rc: Rc, scene: ^Scene) {
         }
         sdl2.RenderCopy(renderer, texture, nil, &rect)
 
-        when EXPENSIVE_DEBUG {
+        rendering_rays: { when EXPENSIVE_DEBUG {
+            if !render_rays do break
             mouse_position: [2]c.int
             sdl2.GetMouseState(&mouse_position.x, &mouse_position.y)
             i := mouse_position.y * cast(c.int)rc.dims.x + mouse_position.x
             #reverse for cast_ in sa.slice(&rc.ray_logs[i]) {
-                p1, p2 := line_to_screen(
+                p1, p2, ok := line_to_screen(
                     rc, &scene.cam,
                     cast_.ray.o,
                     cast_.ray.o + cast_.ray.d * min(cast_.t, 1e4)
                 )
-                if !linalg.is_nan(p1.x) {
-                    if cast_.level == -1 {
-                        sdl2.SetRenderDrawColor(renderer, 255, 255, 0, 120)
-                    } else {
-                        sdl2.SetRenderDrawColor(
-                            renderer,
-                            cast(u8)(cast_.level & 1) * 255,
-                            cast(u8)((cast_.level >> 1) & 1) * 255,
-                            cast(u8)((cast_.level >> 2) & 1) * 255,
-                            255
-                        )
-                    }
-                    sdl2.RenderDrawLine(
+                if !ok do continue
+                if cast_.level == -1 {
+                    sdl2.SetRenderDrawColor(renderer, 255, 255, 0, 120)
+                } else {
+                    sdl2.SetRenderDrawColor(
                         renderer,
-                        cast(c.int)p1.x, cast(c.int)p1.y,
-                        cast(c.int)p2.x, cast(c.int)p2.y,
+                        cast(u8)(cast_.level & 1) * 255,
+                        cast(u8)((cast_.level >> 1) & 1) * 255,
+                        cast(u8)((cast_.level >> 2) & 1) * 255,
+                        255
                     )
                 }
+                sdl2.RenderDrawLine(
+                    renderer,
+                    cast(c.int)p1.x, cast(c.int)p1.y,
+                    cast(c.int)p2.x, cast(c.int)p2.y,
+                )
+            }}
+        }
+
+        when DEBUG_FEATURES {
+            for line in rc.debug_lines {
+                if line.tag != rendering_tag do continue
+                p1, p2, ok := line_to_screen(rc, &scene.cam, line.a, line.b)
+                if !ok do continue
+                color := line.color / clamp(linalg.length(line.color), 0.1, 0.5)
+                sdl2.SetRenderDrawColor(
+                    renderer,
+                    expand_values(linalg.to_u8(linalg.clamp(color * 255, 0, 255))),
+                    255
+                )
+                sdl2.RenderDrawLine(
+                    renderer,
+                    cast(c.int)p1.x, cast(c.int)p1.y,
+                    cast(c.int)p2.x, cast(c.int)p2.y,
+                )
             }
         }
 

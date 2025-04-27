@@ -101,13 +101,13 @@ surface_sampling_pdf :: proc(objects: []Object, origin: [3]f32, omega: [3]f32) -
             if !(hit.t >= 0) do continue
             xy := local_o - hit.p
             weight := linalg.length2(xy) / abs(linalg.dot(hit.n, local_d))
-            p += 0.125 / norm_l1(linalg.abs(geometry.extent.xyz * geometry.extent.yzx)) * weight
+            p += 0.125 / norm_l1(geometry.extent.xyz * geometry.extent.yzx) * weight
             local_ray.o = hit.p + local_d * 1e-4
             hit = intersect_ray_box(local_ray, geometry)
             if !(hit.t >= 0) do continue
             xy = local_o - hit.p
             weight = linalg.length2(xy) / abs(linalg.dot(hit.n, local_d))
-            p += 0.125 / norm_l1(linalg.abs(geometry.extent.xyz * geometry.extent.yzx)) * weight
+            p += 0.125 / norm_l1(geometry.extent.xyz * geometry.extent.yzx) * weight
         case Triangle:
             hit := intersect_ray_triangle(local_ray, geometry)
             if !(hit.t >= 0) do continue

@@ -44,10 +44,17 @@ Cast_Info :: struct {
 
 NUM_LAYERS :: 10 when DEBUG_FEATURES else 1
 
-Rendering_Context :: struct {
+Debug_Line :: struct {
+    a, b, color: [3]f32,
+    tag: u32,
+}
+
+Rendering_Context :: struct #no_copy {
     using cfg: Rendering_Config,
     pixels: [NUM_LAYERS][]Sample_Stats,
     ray_logs: []sa.Small_Array(64, Cast_Info),
+    debug_lines: [dynamic]Debug_Line,
+    lock: sync.Mutex,
 }
 
 Rc :: ^Rendering_Context
@@ -60,11 +67,14 @@ create_rendering_context :: proc(cfg: Rendering_Config) -> (rc: Rendering_Contex
     when EXPENSIVE_DEBUG {
         rc.ray_logs = make(type_of(rc.ray_logs), cast(int)cfg.dims.x * cast(int)cfg.dims.y)
     }
-    return
+    when DEBUG_FEATURES {
+        rc.debug_lines = make(type_of(rc.debug_lines), 0, 1024)
+    }
+    return rc
 }
 
-destroy_rendering_context :: proc(rendering_context: Rendering_Context) {
-    for layer in rendering_context.pixels do delete(layer)
+destroy_rendering_context :: proc(rc: Rc) {
+    for layer in rc.pixels do delete(layer)
 }
 
 rc_set_pixel :: proc(rc: Rc, pos: [2]u32, color: [3]f32, layer: int) {
@@ -104,6 +114,38 @@ debug_log_ray :: proc(info: Cast_Info) {
     }
 }
 
+rc_log_line :: proc(rc: Rc, a, b: [3]f32, color: [3]f32 = {1, 1, 1}, tag: u32 = 0) {
+    when DEBUG_FEATURES {
+        sync.lock(&rc.lock)
+        defer sync.unlock(&rc.lock)
+        append(&rc.debug_lines, Debug_Line{a, b, color, tag})
+    }
+}
+
+rc_log_aabb :: proc(rc: Rc, aabb: AABB, color: [3]f32 = {1, 1, 1}, tag: u32 = 0) {
+    when DEBUG_FEATURES {
+        sync.lock(&rc.lock)
+        defer sync.unlock(&rc.lock)
+        a := aabb.lo
+        b := aabb.hi
+        append(
+            &rc.debug_lines,
+            Debug_Line{{a.x, a.y, a.z}, {b.x, a.y, a.z}, color, tag},
+            Debug_Line{{a.x, b.y, a.z}, {b.x, b.y, a.z}, color, tag},
+            Debug_Line{{a.x, a.y, b.z}, {b.x, a.y, b.z}, color, tag},
+            Debug_Line{{a.x, b.y, b.z}, {b.x, b.y, b.z}, color, tag},
+            Debug_Line{{a.x, a.y, a.z}, {a.x, b.y, a.z}, color, tag},
+            Debug_Line{{b.x, a.y, a.z}, {b.x, b.y, a.z}, color, tag},
+            Debug_Line{{a.x, a.y, b.z}, {a.x, b.y, b.z}, color, tag},
+            Debug_Line{{b.x, a.y, b.z}, {b.x, b.y, b.z}, color, tag},
+            Debug_Line{{a.x, a.y, a.z}, {a.x, a.y, b.z}, color, tag},
+            Debug_Line{{b.x, a.y, a.z}, {b.x, a.y, b.z}, color, tag},
+            Debug_Line{{a.x, b.y, a.z}, {a.x, b.y, b.z}, color, tag},
+            Debug_Line{{b.x, b.y, a.z}, {b.x, b.y, b.z}, color, tag},
+        )
+    }
+}
+
 main :: proc() {
     posix.signal(.SIGINT, proc "cdecl" (_: posix.Signal) {
         sync.atomic_store_explicit(&async_interrupt, true, .Relaxed)
@@ -129,8 +171,8 @@ main :: proc() {
     if args.continious do cfg.samples = max(int)
 
     rendering_context := create_rendering_context(cfg)
-    defer destroy_rendering_context(rendering_context)
     rc := &rendering_context
+    defer destroy_rendering_context(rc)
 
     sync.barrier_init(&thread_init_barrier, 2)
 
@@ -145,7 +187,7 @@ main :: proc() {
         }
     }
 
-    finish_scene(&scene)
+    finish_scene(rc, &scene)
 
     number_of_trials := args.times if args.times > 0 else 1
     render_scene(rc, scene, number_of_trials)
