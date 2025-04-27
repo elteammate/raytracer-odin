@@ -86,8 +86,12 @@ finish_scene :: proc(rc: Rc, s: ^Scene) {
         }
     }
 
+    now := time.now()
     s.bvh, s.standalone_objects = bvh_build(s.objects[1:])
+    fmt.printfln("Scene BVH built in %v", time.diff(now, time.now()))
+    now = time.now()
     s.light_bvh, s.standalone_lights = bvh_build(s.light_surfaces[:])
+    fmt.printfln("Light BVH built in %v", time.diff(now, time.now()))
 
     traverse_bvh_add_aabbs :: proc(rc: Rc, nodes: []BVH_Node, id: int, level: u32) {
         node := nodes[id]
