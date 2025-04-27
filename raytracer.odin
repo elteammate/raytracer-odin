@@ -87,6 +87,7 @@ finish_scene :: proc(rc: Rc, s: ^Scene) {
     }
 
     s.bvh, s.standalone_objects = bvh_build(s.objects[1:])
+    s.light_bvh, s.standalone_lights = bvh_build(s.light_surfaces[:])
 
     traverse_bvh_add_aabbs :: proc(rc: Rc, nodes: []BVH_Node, id: int, level: u32) {
         node := nodes[id]
@@ -180,7 +181,7 @@ intersect_ray_box :: proc(ray: Ray, box: Box) -> (hit: Geometry_Hit) {
 check_intersect_ray_aabb :: proc(global_ray: Ray, aabb: AABB, max_dist: f32) -> (f32, bool) {
     ray := Ray{o = global_ray.o - aabb.lo, d = global_ray.d}
     extent := aabb.hi - aabb.lo
-    if linalg.length2(ray.o - extent / 2) - linalg.length2(extent / 2) > sq(max_dist) {
+    if linalg.length(ray.o - extent / 2) - linalg.length(extent / 2) > max_dist {
         return 0, false
     }
     t1_raw := (extent - ray.o) / ray.d
@@ -492,7 +493,7 @@ cast_ray_through_bvh :: proc(bvh: []BVH_Node, ray: Ray, max_dist: f32) -> (hit: 
         return
     }
 
-    stack: sa.Small_Array(32, int)
+    stack: sa.Small_Array(64, int)
     sa.append(&stack, len(bvh) - 1)
 
     for sa.len(stack) > 0 {
@@ -616,28 +617,32 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) 
         // exitance *= 2 * object.color * linalg.dot(reflected, hit.n)
 
         cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 0.5 : 1.0
-        reflected: [3]f32
+        reflected_ray := Ray{o = hit.p}
         if rand.float32() <= cosine_weighted_weight {
-            reflected = cosine_weighted(hit.n)
+            reflected_ray.d = cosine_weighted(hit.n)
         } else {
-            reflected = surface_sampling(scene.light_surfaces[:], hit.p)
+            reflected_ray.d = surface_sampling(scene.light_surfaces[:], hit.p)
         }
+
         pdf := len(scene.light_surfaces) > 0 ? math.lerp(
-            surface_sampling_pdf(scene.light_surfaces[:], hit.p, reflected),
-            cosine_weighted_pdf(hit.n, reflected),
+            surface_sampling_pdf(scene, reflected_ray),
+            cosine_weighted_pdf(hit.n, reflected_ray.d),
             cosine_weighted_weight,
-        ) : cosine_weighted_pdf(hit.n, reflected)
-        cosine := linalg.dot(reflected, hit.n)
+        ) : cosine_weighted_pdf(hit.n, reflected_ray.d)
+        cosine := linalg.dot(reflected_ray.d, hit.n)
         if pdf > 1e-6 && cosine > 0 {
-            irradiance := raytrace(scene, Ray{hit.p, reflected}, depth_left - 1)
+            irradiance := raytrace(scene, reflected_ray, depth_left - 1)
             exitance = object.color / math.PI * irradiance * cosine / pdf
         }
 
     case .Metallic:
-        reflected := ray.d - 2 * dot(hit.n, ray.d) * hit.n
+        reflected_ray := Ray{
+            o = hit.p,
+            d = ray.d - 2 * dot(hit.n, ray.d) * hit.n,
+        }
 
         irradiance: [3]f32
-        irradiance = raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1)
+        irradiance = raytrace(scene, reflected_ray, depth_left - 1)
 
         exitance = object.color * irradiance
 
@@ -650,23 +655,28 @@ raytrace :: proc(scene: Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32) 
             base_reflection := sq((rel_ior - 1) / (rel_ior + 1))
             ratio := base_reflection + (1 - base_reflection) * math.pow(1 - cos_theta1, 5)
             cos_theta2 := math.sqrt(1 - sq(sin_theta2))
-            refracted := ray.d * rel_ior + hit.n * (rel_ior * cos_theta1 - cos_theta2)
-            refracted = linalg.normalize(refracted)
-            reflected := ray.d + 2 * cos_theta1 * hit.n
+            refracted_ray := Ray{
+                o = hit.p,
+                d = linalg.normalize(ray.d * rel_ior + hit.n * (rel_ior * cos_theta1 - cos_theta2)),
+            }
+            reflected_ray := Ray{
+                o = hit.p,
+                d = ray.d + 2 * cos_theta1 * hit.n,
+            }
 
             color_coef := object.color if !hit.inside else 1
 
             if rand.float32() > ratio {
-                exitance = color_coef * raytrace(scene, Ray{o = hit.p, d = refracted}, depth_left - 1)
+                exitance = color_coef * raytrace(scene, refracted_ray, depth_left - 1)
             } else {
-                exitance = raytrace(scene, Ray{o = hit.p, d = reflected}, depth_left - 1)
+                exitance = raytrace(scene, reflected_ray, depth_left - 1)
             }
         } else {
-            reflected := ray.d + 2 * cos_theta1 * hit.n
-            exitance = raytrace(scene, Ray{
+            reflected_ray := Ray{
                 o = hit.p,
-                d = reflected,
-            }, depth_left - 1)
+                d = ray.d + 2 * cos_theta1 * hit.n,
+            }
+            exitance = raytrace(scene, reflected_ray, depth_left - 1)
         }
     }
 

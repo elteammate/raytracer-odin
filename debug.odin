@@ -100,7 +100,7 @@ debug_window_routine :: proc(rc: Rc, scene: ^Scene) {
         sdl2.RenderCopy(renderer, texture, nil, &rect)
 
         rendering_rays: { when EXPENSIVE_DEBUG {
-            if !render_rays do break
+            if !render_rays do break rendering_rays
             mouse_position: [2]c.int
             sdl2.GetMouseState(&mouse_position.x, &mouse_position.y)
             i := mouse_position.y * cast(c.int)rc.dims.x + mouse_position.x

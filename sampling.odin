@@ -3,6 +3,7 @@ package raytracer
 import "core:math/rand"
 import "core:math/linalg"
 import "core:math"
+import sa "core:container/small_array"
 
 sphere_uniform :: proc() -> [3]f32 {
     phi := rand.float32_range(0.0, math.TAU)
@@ -73,8 +74,7 @@ surface_sampling :: proc(objects: []Object, origin: [3]f32) -> [3]f32 {
     return linalg.normalize(world - origin)
 }
 
-surface_sampling_pdf :: proc(objects: []Object, origin: [3]f32, omega: [3]f32) -> (p: f32) {
-    ray := Ray{o = origin, d = omega}
+surface_sampling_pdf_objects_sum :: proc(objects: []Object, ray: Ray) -> (p: f32) {
     for object in objects {
         conj_rotation := conj(object.rotation)
         local_d := linalg.mul(conj_rotation, ray.d)
@@ -116,6 +116,40 @@ surface_sampling_pdf :: proc(objects: []Object, origin: [3]f32, omega: [3]f32) -
             p += 2 / linalg.length(linalg.cross(geometry.u, geometry.v)) * weight
         }
     }
-    return p / f32(len(objects))
+    return p
+}
+
+surface_sampling_pdf_bvh_sum :: proc(
+    bvh: []BVH_Node, objects: []Object,
+    ray: Ray,
+) -> (p: f32) {
+    if _, h := check_intersect_ray_aabb(ray, bvh[len(bvh) - 1].aabb, math.INF_F32); !h {
+        return
+    }
+
+    stack: sa.Small_Array(64, int)
+    sa.append(&stack, len(bvh) - 1)
+
+    for sa.len(stack) > 0 {
+        id := sa.pop_back(&stack)
+        node := bvh[id]
+        switch vertex in node.vertex {
+        case BVH_Node_Leaf:
+            p += surface_sampling_pdf_objects_sum(vertex.objects, ray)
+        case BVH_Node_Branch:
+            _, hl := check_intersect_ray_aabb(ray, bvh[vertex.left].aabb, math.INF_F32)
+            _, hr := check_intersect_ray_aabb(ray, bvh[vertex.right].aabb, math.INF_F32)
+            if hl do sa.append(&stack, vertex.left)
+            if hr do sa.append(&stack, vertex.right)
+        }
+    }
+
+    return p
+}
+
+surface_sampling_pdf :: proc(scene: Scene, ray: Ray) -> (p: f32) {
+    objects_pdf := surface_sampling_pdf_objects_sum(scene.standalone_lights[:], ray)
+    objects_pdf += surface_sampling_pdf_bvh_sum(scene.light_bvh[:], scene.light_surfaces[:], ray)
+    return objects_pdf / f32(len(scene.light_surfaces))
 }
 
