@@ -1,5 +1,6 @@
 package raytracer
 
+import "base:runtime"
 import "core:fmt"
 import "core:sync"
 import "core:math"
@@ -548,7 +549,7 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
 
     switch object.material_kind {
     case .Diffuse:
-        cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 0.5 : 1.0
+        cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 1.0 : 1.0
         reflected_ray := Ray{o = hit.p}
         if rand.float32() <= cosine_weighted_weight {
             reflected_ray.d = cosine_weighted(hit.n)
@@ -649,6 +650,7 @@ render_task :: proc(rc: Rc, scene: ^Scene, tile_id: ^u64) {
 
     for {
         id := sync.atomic_add_explicit(tile_id, 1, .Relaxed)
+        runtime.random_generator_reset_u64(context.random_generator, id)
 
         if is_interrupted() do break
         if id >= total_tasks do break
