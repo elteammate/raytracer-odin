@@ -53,14 +53,7 @@ Scene :: struct {
 finish_scene :: proc(rc: Rc, s: ^Scene) {
     for object in s.objects[1:] {
         if _, is_plane := object.geometry.(Plane); !is_plane && norm_l1(object.emission) > 1e-6 {
-            add: bool
-            switch geometry in object.geometry {
-            case Plane: add = false
-            case Ellipsoid: add = false
-            case Box: add = true
-            case Triangle: add = true
-            }
-            if add do append(&s.light_surfaces, object)
+            append(&s.light_surfaces, object)
         }
 
         if _, is_plane := object.geometry.(Plane); !is_plane {
