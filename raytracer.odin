@@ -533,12 +533,6 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
 
     hit := cast_ray(scene, ray, math.INF_F32)
 
-    debug_log_ray({
-        ray = ray,
-        t = hit.t,
-        level = depth_left,
-    })
-
     if hit.inside do hit.n = -hit.n
 
     if hit.object == nil {
@@ -549,7 +543,7 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
 
     switch object.material_kind {
     case .Diffuse:
-        cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 1.0 : 1.0
+        cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 0.5 : 1.0
         reflected_ray := Ray{o = hit.p}
         if rand.float32() <= cosine_weighted_weight {
             reflected_ray.d = cosine_weighted(hit.n)
@@ -614,6 +608,12 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
     }
 
     exitance += object.emission
+
+    debug_log_ray({
+        ray = ray,
+        t = hit.t,
+        color = exitance,
+    })
 
     return exitance
 }

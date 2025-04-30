@@ -111,22 +111,18 @@ debug_window_routine :: proc(rc: Rc, scene: ^Scene) {
                     cast_.ray.o + cast_.ray.d * min(cast_.t, 1e4)
                 )
                 if !ok do continue
-                if cast_.level == -1 {
-                    sdl2.SetRenderDrawColor(renderer, 255, 255, 0, 120)
-                } else {
+                if norm_l1(cast_.color) > 1e-2 {
                     sdl2.SetRenderDrawColor(
                         renderer,
-                        cast(u8)(cast_.level & 1) * 255,
-                        cast(u8)((cast_.level >> 1) & 1) * 255,
-                        cast(u8)((cast_.level >> 2) & 1) * 255,
+                        expand_values(linalg.to_u8(linalg.clamp(cast_.color * 255, 0, 255))),
                         255
                     )
+                    sdl2.RenderDrawLine(
+                        renderer,
+                        cast(c.int)p1.x, cast(c.int)p1.y,
+                        cast(c.int)p2.x, cast(c.int)p2.y,
+                    )
                 }
-                sdl2.RenderDrawLine(
-                    renderer,
-                    cast(c.int)p1.x, cast(c.int)p1.y,
-                    cast(c.int)p2.x, cast(c.int)p2.y,
-                )
             }}
         }
 

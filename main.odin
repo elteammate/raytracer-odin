@@ -40,7 +40,7 @@ Sample_Stats :: struct {
 Cast_Info :: struct {
     ray: Ray,
     t: f32,
-    level: i32,
+    color: [3]f32,
 }
 
 NUM_LAYERS :: 10 when DEBUG_FEATURES else 1
