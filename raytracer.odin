@@ -53,7 +53,14 @@ Scene :: struct {
 finish_scene :: proc(rc: Rc, s: ^Scene) {
     for object in s.objects[1:] {
         if _, is_plane := object.geometry.(Plane); !is_plane && norm_l1(object.emission) > 1e-6 {
-            append(&s.light_surfaces, object)
+            add: bool
+            switch geometry in object.geometry {
+            case Plane: add = false
+            case Ellipsoid: add = false
+            case Box: add = true
+            case Triangle: add = true
+            }
+            if add do append(&s.light_surfaces, object)
         }
 
         if _, is_plane := object.geometry.(Plane); !is_plane {
@@ -67,6 +74,7 @@ finish_scene :: proc(rc: Rc, s: ^Scene) {
     now = time.now()
     s.light_bvh, s.standalone_lights = bvh_build(s.light_surfaces[:])
     fmt.printfln("Light BVH built in %v", time.diff(now, time.now()))
+    fmt.printfln("%v", s.light_surfaces)
 
     traverse_bvh_add_aabbs :: proc(rc: Rc, nodes: []BVH_Node, id: int, level: u32) {
         node := nodes[id]

@@ -78,7 +78,7 @@ surface_sampling_pdf_objects_sum :: proc(objects: []Object, ray: Ray) -> (p: f32
     for object in objects {
         conj_rotation := conj(object.rotation)
         local_d := linalg.mul(conj_rotation, ray.d)
-        local_o := linalg.mul(conj_rotation, ray.o - object.pos) + 1e-3 * local_d
+        local_o := linalg.mul(conj_rotation, ray.o + 1e-3 * ray.d - object.pos)
         local_ray := Ray{o = local_o, d = local_d}
 
         switch geometry in object.geometry {
@@ -148,6 +148,7 @@ surface_sampling_pdf_bvh_sum :: proc(
 }
 
 surface_sampling_pdf :: proc(scene: ^Scene, ray: Ray) -> (p: f32) {
+    // objects_pdf := surface_sampling_pdf_objects_sum(scene.light_surfaces[:], ray)
     objects_pdf := surface_sampling_pdf_objects_sum(scene.standalone_lights[:], ray)
     objects_pdf += surface_sampling_pdf_bvh_sum(scene.light_bvh[:], scene.light_surfaces[:], ray)
     return objects_pdf / f32(len(scene.light_surfaces))

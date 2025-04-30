@@ -53,7 +53,7 @@ Debug_Line :: struct {
 Rendering_Context :: struct #no_copy {
     using cfg: Rendering_Config,
     pixels: [NUM_LAYERS][]Sample_Stats,
-    ray_logs: []sa.Small_Array(64, Cast_Info),
+    ray_logs: []sa.Small_Array(256, Cast_Info),
     debug_lines: [dynamic]Debug_Line,
     lock: sync.Mutex,
 }
