@@ -182,14 +182,12 @@ main :: proc() {
         if parse_error != nil {
             fmt.panicf("Failed to parse scene: %v", parse_error)
         }
-    } else if strings.ends_with(args.input_file, ".gltf") {
+    } else {
         parse_error: Maybe(string)
         scene, parse_error = read_gltf(args.input_file)
         if parse_error != nil {
             fmt.panicf("Failed to parse gltf: %v", parse_error)
         }
-    } else {
-        fmt.panicf("Unsupported file format: %s", args.input_file)
     }
     defer destory_scene(&scene)
 
