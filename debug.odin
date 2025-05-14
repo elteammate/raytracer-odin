@@ -125,21 +125,23 @@ debug_window_routine :: proc(rc: Rc, scene: ^Scene) {
         }
 
         when DEBUG_FEATURES {
-            for line in rc.debug_lines {
-                if line.tag != rendering_tag do continue
-                p1, p2, ok := line_to_screen(rc, &scene.cam, line.a, line.b)
-                if !ok do continue
-                color := line.color / clamp(linalg.length(line.color), 0.1, 0.5)
-                sdl2.SetRenderDrawColor(
-                    renderer,
-                    expand_values(linalg.to_u8(linalg.clamp(color * 255, 0, 255))),
-                    255
-                )
-                sdl2.RenderDrawLine(
-                    renderer,
-                    cast(c.int)p1.x, cast(c.int)p1.y,
-                    cast(c.int)p2.x, cast(c.int)p2.y,
-                )
+            if sync.mutex_guard(&rc.lock) {
+                for line in rc.debug_lines {
+                    if line.tag != rendering_tag do continue
+                    p1, p2, ok := line_to_screen(rc, &scene.cam, line.a, line.b)
+                    if !ok do continue
+                    color := line.color / clamp(linalg.length(line.color), 0.1, 0.5)
+                    sdl2.SetRenderDrawColor(
+                        renderer,
+                        expand_values(linalg.to_u8(linalg.clamp(color * 255, 0, 255))),
+                        255
+                    )
+                    sdl2.RenderDrawLine(
+                        renderer,
+                        cast(c.int)p1.x, cast(c.int)p1.y,
+                        cast(c.int)p2.x, cast(c.int)p2.y,
+                    )
+                }
             }
         }
 

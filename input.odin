@@ -209,14 +209,9 @@ read_gltf :: proc(gltf_path: string) -> (
                         ior = ior,
                         emission = emission,
                     })
-                    if norm_l1(emission) > 0 {
-                        fmt.printfln("%v", scene.objects[len(scene.objects) - 1])
-                    }
                 }
             }
         }
-
-        fmt.printfln("%v", scene.cam)
 
         for child in node.children {
             populate_scene(scene, child, &transform) or_return

@@ -8,7 +8,7 @@ run scene out="out.ppm" width="512" height="512":
 
 debug scene out="out.ppm" width="512" height="512":
     odin run . -debug {{ODIN_FLAGS}} \
-        -o:aggressive \
+        # -o:aggressive \
         -define:EXPENSIVE_DEBUG=true \
         -- {{scene}} {{out}} --debug --continious \
             --width {{width}} --height {{height}} --ray-depth 8 --num-samples 1024
