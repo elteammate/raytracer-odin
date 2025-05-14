@@ -219,7 +219,8 @@ read_gltf :: proc(gltf_path: string) -> (
         return
     }
 
-    for node in gltf.scene.nodes {
+    gltf_scene := gltf.scene == nil ? &gltf.scenes[0] : gltf.scene
+    for node in gltf_scene.nodes {
         transform := linalg.MATRIX4F32_IDENTITY
         populate_scene(&scene, node, &transform)
     }
