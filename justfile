@@ -1,17 +1,20 @@
 ODIN_FLAGS := "-vet-shadowing -microarch:native"
 
-run scene out="out.ppm":
+run scene out="out.ppm" width="512" height="512":
     odin run . -debug {{ODIN_FLAGS}} \
         -o:aggressive \
         -- {{scene}} {{out}} --debug --continious \
-            --width 512 --height 512 --ray-depth 8 --num-samples 1024
+            --width {{width}} --height {{height}} --ray-depth 8 --num-samples 1024
 
-debug scene out="out.ppm":
+debug scene out="out.ppm" width="512" height="512":
     odin run . -debug {{ODIN_FLAGS}} \
         -o:aggressive \
         -define:EXPENSIVE_DEBUG=true \
         -- {{scene}} {{out}} --debug --continious \
-            --width 512 --height 512 --ray-depth 8 --num-samples 1024
+            --width {{width}} --height {{height}} --ray-depth 8 --num-samples 1024
+
+debug-build:
+    odin build . -debug {{ODIN_FLAGS}} -define:EXPENSIVE_DEBUG=true
 
 sanitize sanitizer scene out="out.ppm":
     odin run . -debug {{ODIN_FLAGS}} \

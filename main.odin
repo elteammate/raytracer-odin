@@ -168,15 +168,15 @@ main :: proc() {
 
     flags.parse_or_exit(&args, os.args, .Unix)
 
-    input_handle, file_open_error := os.open(args.input_file)
-    if file_open_error != nil {
-        fmt.panicf("Failed to open input file: %v", file_open_error)
-    }
-    defer os.close(input_handle)
-
     scene: Scene
     cfg: Rendering_Config
     if strings.ends_with(args.input_file, ".txt") {
+        input_handle, file_open_error := os.open(args.input_file)
+        if file_open_error != nil {
+            fmt.panicf("Failed to open input file: %v", file_open_error)
+        }
+        defer os.close(input_handle)
+
         parse_error: Maybe(string)
         scene, cfg, parse_error = read_scene(input_handle)
         if parse_error != nil {
@@ -184,7 +184,7 @@ main :: proc() {
         }
     } else if strings.ends_with(args.input_file, ".gltf") {
         parse_error: Maybe(string)
-        scene, parse_error = read_gltf(input_handle)
+        scene, parse_error = read_gltf(args.input_file)
         if parse_error != nil {
             fmt.panicf("Failed to parse gltf: %v", parse_error)
         }
@@ -194,7 +194,11 @@ main :: proc() {
     defer destory_scene(&scene)
 
     if args.width != 0 do cfg.dims.x = args.width
-    if args.height != 0 do cfg.dims.y = args.height
+    if args.height != 0 {
+        cfg.dims.y = args.height
+        aspect := f32(cfg.dims.x) / f32(cfg.dims.y)
+        scene.cam.fov_x *= aspect
+    }
     if args.ray_depth != 0 do cfg.ray_depth = args.ray_depth
     if args.num_samples != 0 do cfg.samples = args.num_samples
     if args.continious do cfg.samples = max(int)

@@ -22,15 +22,17 @@ Triangle :: struct { p, u, v, n: [3]f32 }
 
 Geometry :: union { Plane, Ellipsoid, Box, Triangle }
 
+Material_Kind :: enum u32 {
+    Diffuse, Metallic, Dielectric,
+}
+
 Object :: struct {
     geometry: Geometry,
     pos: [3]f32,
     rotation: quaternion128,
     color: [3]f32,
     emission: [3]f32,
-    material_kind: enum u32 {
-        Diffuse, Metallic, Dielectric,
-    },
+    material_kind: Material_Kind,
     ior: f32,
 }
 

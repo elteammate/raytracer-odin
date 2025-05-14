@@ -1,6 +1,7 @@
 package raytracer
 
 import "core:os"
+import "core:strings"
 import "core:fmt"
 import "core:bufio"
 import "core:slice"
@@ -104,10 +105,15 @@ read_scene :: proc(file_handle: os.Handle) -> (
     return
 }
 
-read_gltf :: proc(handle: os.Handle) -> (
+read_gltf :: proc(gltf_path: string) -> (
     scene: Scene,
     error: Maybe(string)
 ) {
+    handle, file_open_error := os.open(gltf_path)
+    if file_open_error != nil {
+        error = fmt.tprintf("Failed to open input file: %v", file_open_error)
+        return
+    }
     data, read_error := os.read_entire_file_from_handle_or_err(handle)
     if read_error != nil {
         error = fmt.tprintf("%v", read_error)
@@ -121,10 +127,21 @@ read_gltf :: proc(handle: os.Handle) -> (
     }
     defer cgltf.free(gltf)
 
+    buffer_load_result := cgltf.load_buffers(
+        {}, gltf, strings.clone_to_cstring(gltf_path, context.temp_allocator)
+    )
+    if buffer_load_result != cgltf.result.success {
+        error = fmt.tprintf("Failed to load buffers from .gltf file: %v", buffer_load_result)
+        return
+    }
+
     append(&scene.objects, Object{})
 
-    populate_scene :: proc(scene: ^Scene, node: ^cgltf.node, parent_transform: ^matrix[4, 4]f32) -> (error: Maybe(string)) {
-        fmt.printfln("%v", node.name)
+    populate_scene :: proc(
+        scene: ^Scene,
+        node: ^cgltf.node,
+        parent_transform: ^matrix[4, 4]f32
+    ) -> (error: Maybe(string)) {
         local_transform: matrix[4, 4]f32 = linalg.MATRIX4F32_IDENTITY
         cgltf.node_transform_local(node, &local_transform[0, 0])
         transform := parent_transform^ * local_transform
@@ -133,12 +150,13 @@ read_gltf :: proc(handle: os.Handle) -> (
             scene.cam.pos = transform[3].xyz
             scene.cam.basis[0] = transform[0].xyz
             scene.cam.basis[1] = transform[1].xyz
-            scene.cam.basis[2] = transform[2].xyz
+            scene.cam.basis[2] = -transform[2].xyz
             scene.cam.fov_x = node.camera.data.perspective.yfov
         }
 
         if node.mesh != nil {
-            for primitive in node.mesh.primitives {
+            for &primitive in node.mesh.primitives {
+                primitive: ^cgltf.primitive = &primitive
                 position_accessor: ^cgltf.accessor
                 index_accessor: ^cgltf.accessor = primitive.indices
                 for accessor in primitive.attributes {
@@ -150,12 +168,27 @@ read_gltf :: proc(handle: os.Handle) -> (
                     return "No position accessor found in mesh primitive"
                 }
 
+                material_kind := Material_Kind.Diffuse
+                color: [4]f32 = primitive.material.pbr_metallic_roughness.base_color_factor
+                ior: f32
+                emission: [3]f32 = primitive.material.emissive_factor
+                if color.a < 1.0 {
+                    material_kind = .Dielectric
+                    ior = 1.5
+                }
+                if primitive.material.pbr_metallic_roughness.metallic_factor > 0.0 {
+                    material_kind = .Metallic
+                }
+                if primitive.material.has_emissive_strength {
+                    emission *= primitive.material.emissive_strength.emissive_strength
+                }
+
                 num_vertices := index_accessor == nil ? position_accessor.count : index_accessor.count
                 for i in 0..<num_vertices / 3 {
                     positions: [3][3]f32
                     for j in 0..<uint(3) {
                         index := index_accessor == nil ? i * 3 + j : cgltf.accessor_read_index(index_accessor, i * 3 + j)
-                        if !cgltf.accessor_read_float(position_accessor, i * 3 + j, &positions[j][0], 3) {
+                        if !cgltf.accessor_read_float(position_accessor, index, &positions[j][0], 3) {
                             return "Failed to read position data from accessor"
                         }
                     }
@@ -171,11 +204,19 @@ read_gltf :: proc(handle: os.Handle) -> (
                         },
                         pos = {0, 0, 0},
                         rotation = quaternion(x = 0, y = 0, z = 0, w = 1),
-                        material_kind = .Diffuse,
+                        material_kind = material_kind,
+                        color = color.rgb,
+                        ior = ior,
+                        emission = emission,
                     })
+                    if norm_l1(emission) > 0 {
+                        fmt.printfln("%v", scene.objects[len(scene.objects) - 1])
+                    }
                 }
             }
         }
+
+        fmt.printfln("%v", scene.cam)
 
         for child in node.children {
             populate_scene(scene, child, &transform) or_return
@@ -187,8 +228,6 @@ read_gltf :: proc(handle: os.Handle) -> (
         transform := linalg.MATRIX4F32_IDENTITY
         populate_scene(&scene, node, &transform)
     }
-
-    fmt.printfln("%v", scene)
 
     return
 }
