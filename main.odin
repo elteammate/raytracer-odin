@@ -167,6 +167,7 @@ main :: proc() {
     }
 
     flags.parse_or_exit(&args, os.args, .Unix)
+
     input_handle, file_open_error := os.open(args.input_file)
     if file_open_error != nil {
         fmt.panicf("Failed to open input file: %v", file_open_error)

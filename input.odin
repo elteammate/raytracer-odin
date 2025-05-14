@@ -108,9 +108,9 @@ read_gltf :: proc(handle: os.Handle) -> (
     scene: Scene,
     error: Maybe(string)
 ) {
-    data, ok := os.read_entire_file_from_handle(handle)
-    if !ok {
-        error = "Failed to read .gltf file"
+    data, read_error := os.read_entire_file_from_handle_or_err(handle)
+    if read_error != nil {
+        error = fmt.tprintf("%v", read_error)
         return
     }
     defer delete(data)
@@ -123,10 +123,11 @@ read_gltf :: proc(handle: os.Handle) -> (
 
     append(&scene.objects, Object{})
 
-    populate_scene :: proc(scene: ^Scene, node: ^cgltf.node, parent_transform: matrix[4, 4]f32) -> (error: Maybe(string)) {
-        local_transform := linalg.MATRIX4F32_IDENTITY
+    populate_scene :: proc(scene: ^Scene, node: ^cgltf.node, parent_transform: ^matrix[4, 4]f32) -> (error: Maybe(string)) {
+        fmt.printfln("%v", node.name)
+        local_transform: matrix[4, 4]f32 = linalg.MATRIX4F32_IDENTITY
         cgltf.node_transform_local(node, &local_transform[0, 0])
-        transform := parent_transform * local_transform
+        transform := parent_transform^ * local_transform
 
         if node.camera != nil {
             scene.cam.pos = transform[3].xyz
@@ -177,14 +178,17 @@ read_gltf :: proc(handle: os.Handle) -> (
         }
 
         for child in node.children {
-            populate_scene(scene, child, transform) or_return
+            populate_scene(scene, child, &transform) or_return
         }
         return
     }
 
     for node in gltf.scene.nodes {
-        populate_scene(&scene, node, linalg.MATRIX4F32_IDENTITY)
+        transform := linalg.MATRIX4F32_IDENTITY
+        populate_scene(&scene, node, &transform)
     }
+
+    fmt.printfln("%v", scene)
 
     return
 }

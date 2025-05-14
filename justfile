@@ -3,13 +3,15 @@ ODIN_FLAGS := "-vet-shadowing -microarch:native"
 run scene out="out.ppm":
     odin run . -debug {{ODIN_FLAGS}} \
         -o:aggressive \
-        -- {{scene}} {{out}} --debug --continious
+        -- {{scene}} {{out}} --debug --continious \
+            --width 512 --height 512 --ray-depth 8 --num-samples 1024
 
 debug scene out="out.ppm":
     odin run . -debug {{ODIN_FLAGS}} \
         -o:aggressive \
         -define:EXPENSIVE_DEBUG=true \
-        -- {{scene}} {{out}} --debug --continious
+        -- {{scene}} {{out}} --debug --continious \
+            --width 512 --height 512 --ray-depth 8 --num-samples 1024
 
 sanitize sanitizer scene out="out.ppm":
     odin run . -debug {{ODIN_FLAGS}} \
