@@ -8,6 +8,7 @@ import "core:fmt"
 import "core:thread"
 import "core:simd"
 import "core:sync"
+import "core:strings"
 import sa "core:container/small_array"
 import "core:math/linalg"
 import "core:time"
@@ -153,23 +154,48 @@ main :: proc() {
     })
 
     args: struct {
-        input_handle: os.Handle `args:"pos=0,required,file=r" usage:"Input scene"`,
+        input_file: string `args:"pos=0,required" usage:"Input scene"`,
         output_file: string `args:"pos=1" usage:"Output image"`,
         debug: bool `usage:"Enable debug window"`,
         times: int `usage:"Number of times to render the scene"`,
         continious: bool `usage:"Ignore sample limit and render until interrupted"`,
         threads: int `usage:"Number of threads to use"`,
+        width: u32 `usage:"Width of the output image"`,
+        height: u32 `usage:"Height of the output image"`,
+        ray_depth: i32 `usage:"Max depth of rays"`,
+        num_samples: int `usage:"Number of samples per pixel"`,
     }
 
     flags.parse_or_exit(&args, os.args, .Unix)
-    defer os.close(args.input_handle)
+    input_handle, file_open_error := os.open(args.input_file)
+    if file_open_error != nil {
+        fmt.panicf("Failed to open input file: %v", file_open_error)
+    }
+    defer os.close(input_handle)
 
-    scene, cfg, parse_error := read_scene(args.input_handle)
-    if parse_error != nil {
-        fmt.panicf("Failed to parse scene: %v", parse_error)
+    scene: Scene
+    cfg: Rendering_Config
+    if strings.ends_with(args.input_file, ".txt") {
+        parse_error: Maybe(string)
+        scene, cfg, parse_error = read_scene(input_handle)
+        if parse_error != nil {
+            fmt.panicf("Failed to parse scene: %v", parse_error)
+        }
+    } else if strings.ends_with(args.input_file, ".gltf") {
+        parse_error: Maybe(string)
+        scene, parse_error = read_gltf(input_handle)
+        if parse_error != nil {
+            fmt.panicf("Failed to parse gltf: %v", parse_error)
+        }
+    } else {
+        fmt.panicf("Unsupported file format: %s", args.input_file)
     }
     defer destory_scene(&scene)
 
+    if args.width != 0 do cfg.dims.x = args.width
+    if args.height != 0 do cfg.dims.y = args.height
+    if args.ray_depth != 0 do cfg.ray_depth = args.ray_depth
+    if args.num_samples != 0 do cfg.samples = args.num_samples
     if args.continious do cfg.samples = max(int)
     if args.threads > 0 {
         cfg.threads = args.threads
