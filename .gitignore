@@ -2,4 +2,5 @@ raytracer-odin
 out.ppm
 out.png
 *.o
+cgltf/lib
 

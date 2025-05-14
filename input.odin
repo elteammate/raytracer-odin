@@ -6,7 +6,7 @@ import "core:fmt"
 import "core:bufio"
 import "core:slice"
 import "core:math/linalg"
-import "vendor:cgltf"
+import "cgltf"
 
 read_scene :: proc(file_handle: os.Handle) -> (
     scene: Scene,
