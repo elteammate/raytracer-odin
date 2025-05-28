@@ -170,24 +170,10 @@ main :: proc() {
 
     scene: Scene
     cfg: Rendering_Config
-    if strings.ends_with(args.input_file, ".txt") {
-        input_handle, file_open_error := os.open(args.input_file)
-        if file_open_error != nil {
-            fmt.panicf("Failed to open input file: %v", file_open_error)
-        }
-        defer os.close(input_handle)
-
-        parse_error: Maybe(string)
-        scene, cfg, parse_error = read_scene(input_handle)
-        if parse_error != nil {
-            fmt.panicf("Failed to parse scene: %v", parse_error)
-        }
-    } else {
-        parse_error: Maybe(string)
-        scene, parse_error = read_gltf(args.input_file)
-        if parse_error != nil {
-            fmt.panicf("Failed to parse gltf: %v", parse_error)
-        }
+    parse_error: Maybe(string)
+    scene, parse_error = read_gltf(args.input_file)
+    if parse_error != nil {
+        fmt.panicf("Failed to parse gltf: %v", parse_error)
     }
     defer destory_scene(&scene)
 

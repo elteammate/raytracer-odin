@@ -15,21 +15,14 @@ import "core:thread"
 
 dot :: linalg.dot
 
-Plane :: struct { normal: [3]f32 }
-Ellipsoid :: struct { radii: [3]f32 }
-Box :: struct { extent: [3]f32 }
 Triangle :: struct { p, u, v, n: [3]f32 }
-
-Geometry :: union { Plane, Ellipsoid, Box, Triangle }
 
 Material_Kind :: enum u32 {
     Diffuse, Metallic, Dielectric,
 }
 
 Object :: struct {
-    geometry: Geometry,
-    pos: [3]f32,
-    rotation: quaternion128,
+    trig: Triangle,
     color: [3]f32,
     emission: [3]f32,
     material_kind: Material_Kind,
@@ -46,28 +39,24 @@ Scene :: struct {
     cam: Cam,
     objects: [dynamic]Object,
     light_surfaces: [dynamic]Object,
-    standalone_objects: [dynamic]Object,
-    standalone_lights: [dynamic]Object,
     bvh: [dynamic]BVH_Node,
     light_bvh: [dynamic]BVH_Node,
 }
 
 finish_scene :: proc(rc: Rc, s: ^Scene) {
     for object in s.objects[1:] {
-        if _, is_plane := object.geometry.(Plane); !is_plane && norm_l1(object.emission) > 1e-6 {
+        if norm_l1(object.emission) > 1e-6 {
             append(&s.light_surfaces, object)
         }
 
-        if _, is_plane := object.geometry.(Plane); !is_plane {
-            rc_log_aabb(rc, aabb_of_object(object), object.color)
-        }
+        rc_log_aabb(rc, aabb_of_object(object), object.color)
     }
 
     now := time.now()
-    s.bvh, s.standalone_objects = bvh_build(s.objects[1:])
+    s.bvh = bvh_build(s.objects[1:])
     fmt.printfln("Scene BVH built in %v", time.diff(now, time.now()))
     now = time.now()
-    s.light_bvh, s.standalone_lights = bvh_build(s.light_surfaces[:])
+    s.light_bvh = bvh_build(s.light_surfaces[:])
     fmt.printfln("Light BVH built in %v", time.diff(now, time.now()))
 
     traverse_bvh_add_aabbs :: proc(rc: Rc, nodes: []BVH_Node, id: int, level: u32) {
@@ -89,8 +78,6 @@ finish_scene :: proc(rc: Rc, s: ^Scene) {
 destory_scene :: proc(s: ^Scene) {
     delete(s.objects)
     delete(s.light_surfaces)
-    delete(s.standalone_objects)
-    delete(s.standalone_lights)
     delete(s.bvh)
     delete(s.light_bvh)
 }
@@ -105,58 +92,6 @@ Geometry_Hit :: struct {
     inside: bool,
     n, p: [3]f32,
     t: f32,
-}
-
-intersect_ray_plane :: proc(ray: Ray, plane: Plane) -> (hit: Geometry_Hit) {
-    using hit
-    n = plane.normal
-    o_dot_n := dot(ray.o, n)
-    t = -o_dot_n / dot(ray.d, n)
-    inside = o_dot_n < 0
-    p = ray.o + t * ray.d
-    return
-}
-
-intersect_ray_ellipsoid :: proc(ray: Ray, e: Ellipsoid) -> (hit: Geometry_Hit) {
-    using hit
-    o_div_r := ray.o / e.radii
-    d_div_r := ray.d / e.radii
-    a := dot(d_div_r, d_div_r)
-    b := dot(o_div_r, d_div_r)
-    c := dot(o_div_r, o_div_r) - 1
-    discriminant := b * b - a * c
-    if discriminant < 0 {
-        t = -1
-        return
-    }
-    discriminant_root := math.sqrt(discriminant)
-    t1 := (-b - discriminant_root) / a
-    t2 := (-b + discriminant_root) / a
-    fmt.assertf(!(t2 < t1), "%v %v", t1, t2)
-    inside = t1 < 0
-    t = t2 if inside else t1
-    p = ray.o + t * ray.d
-    n = linalg.normalize(p / (e.radii * e.radii))
-    return
-}
-
-intersect_ray_box :: proc(ray: Ray, box: Box) -> (hit: Geometry_Hit) {
-    using hit
-    t1_raw := (box.extent - ray.o) / ray.d
-    t2_raw := (-box.extent - ray.o) / ray.d
-    t_min := linalg.min(t1_raw, t2_raw)
-    t_max := linalg.max(t1_raw, t2_raw)
-    t1 := max(t_min.x, t_min.y, t_min.z)
-    t2 := min(t_max.x, t_max.y, t_max.z)
-    if t1 > t2 {
-        t = -1
-        return
-    }
-    inside = t1 < 0
-    t = t2 if inside else t1
-    p = ray.o + t * ray.d
-    n = linalg.step(box.extent, linalg.abs(p) + 1e-6) * linalg.sign(p)
-    return
 }
 
 check_intersect_ray_aabb :: proc(global_ray: Ray, aabb: AABB, max_dist: f32) -> (f32, bool) {
@@ -215,14 +150,6 @@ aabb_shift :: proc(aabb: AABB, offset: [3]f32) -> AABB {
     }
 }
 
-aabb_to_object :: proc(aabb: AABB) -> Object {
-    return Object{
-        geometry = Box{extent = (aabb.hi - aabb.lo) / 2},
-        pos = (aabb.hi + aabb.lo) / 2,
-        rotation = linalg.QUATERNIONF32_IDENTITY,
-    }
-}
-
 box_corners :: proc(lo, hi: [3]f32) -> [8][3]f32 {
     return {
         {lo.x, lo.y, lo.z},
@@ -246,33 +173,13 @@ aabb_of_points :: proc(points: [$N][3]f32) -> AABB {
 }
 
 aabb_of_object :: proc(object: Object) -> AABB {
-    switch geometry in object.geometry {
-    case Plane:
-        panic("Cannot create AABB from a plane")
-    case Box:
-        corners := box_corners(-geometry.extent, geometry.extent)
-        for &corner in corners {
-            corner = linalg.mul(object.rotation, corner)
-        }
-        return aabb_shift(aabb_of_points(corners), object.pos)
-    case Ellipsoid:
-        corners := box_corners(-geometry.radii, geometry.radii)
-        for &corner in corners {
-            corner = linalg.mul(object.rotation, corner)
-        }
-        return aabb_shift(aabb_of_points(corners), object.pos)
-    case Triangle:
-        points := [3][3]f32{
-            geometry.p,
-            geometry.p + geometry.u,
-            geometry.p + geometry.v,
-        }
-        for &point in points {
-            point = linalg.mul(object.rotation, point)
-        }
-        return aabb_shift(aabb_of_points(points), object.pos)
+    trig := object.trig
+    points := [3][3]f32{
+        trig.p,
+        trig.p + trig.u,
+        trig.p + trig.v,
     }
-    unreachable()
+    return aabb_of_points(points)
 }
 
 aabb_area :: proc(aabb: AABB) -> f32 {
@@ -296,7 +203,7 @@ BVH_Node :: struct {
     },
 }
 
-bvh_build :: proc(objects: []Object) -> ([dynamic]BVH_Node, [dynamic]Object) {
+bvh_build :: proc(objects: []Object) -> [dynamic]BVH_Node {
     objects := objects
 
     LEAF_NODE_THRESHOLD :: 4
@@ -399,18 +306,9 @@ bvh_build :: proc(objects: []Object) -> ([dynamic]BVH_Node, [dynamic]Object) {
         return len(nodes) - 1
     }
 
-    standalone := make([dynamic]Object)
     aabbs := make([]AABB, len(objects), context.temp_allocator)
     for i := 0; i < len(objects); i += 1 {
-        if _, is_plane := objects[i].geometry.(Plane); is_plane {
-            append(&standalone, objects[i])
-            last := len(objects) - 1
-            slice.swap(objects, i, last)
-            objects = objects[:last]
-            i -= 1
-        } else {
-            aabbs[i] = aabb_of_object(objects[i])
-        }
+        aabbs[i] = aabb_of_object(objects[i])
     }
 
     nodes := make([dynamic]BVH_Node, 0, len(objects) / 2)
@@ -419,7 +317,7 @@ bvh_build :: proc(objects: []Object) -> ([dynamic]BVH_Node, [dynamic]Object) {
     defer delete(aabbs, context.temp_allocator)
 
     recurse(buf, aabbs[:len(objects)], objects, &nodes)
-    return nodes, standalone
+    return nodes
 }
 
 Hit :: struct {
@@ -436,25 +334,11 @@ cast_ray_through_objects :: proc(objects: []Object, ray: Ray, max_dist: f32) -> 
     // assert(abs(linalg.length2(ray.d) - 1) < 1e-4)
 
     for &object, i in objects {
-        conj_rotation := conj(object.rotation)
-        local_d := linalg.mul(conj_rotation, ray.d)
-        local_o := linalg.mul(conj_rotation, ray.o - object.pos)
-        local_ray := Ray{o = local_o, d = local_d}
+        gh := intersect_ray_triangle(ray, object.trig)
 
-        gh: Geometry_Hit = ---
-        switch geometry in object.geometry {
-        case Plane:
-            gh = intersect_ray_plane(local_ray, geometry)
-        case Ellipsoid:
-            gh = intersect_ray_ellipsoid(local_ray, geometry)
-        case Box:
-            gh = intersect_ray_box(local_ray, geometry)
-        case Triangle:
-            gh = intersect_ray_triangle(local_ray, geometry)
-        }
         if gh.t > 0 && gh.t < hit.t {
             hit = {
-                t = gh.t, n = linalg.mul(object.rotation, gh.n),
+                t = gh.t, n = gh.n,
                 object = &objects[i], inside = gh.inside,
                 // p is set later
             }
@@ -519,9 +403,6 @@ cast_ray :: proc(scene: ^Scene, global_ray: Ray, max_dist: f32) -> (hit: Hit) {
         o = global_ray.o + global_ray.d * RAY_EPS,
     }
 
-    hit = cast_ray_through_objects(scene.standalone_objects[:], ray, max_dist)
-    if hit.t < max_dist do max_dist = hit.t
-
     hit2 := cast_ray_through_bvh(scene.bvh[:], ray, max_dist)
     if hit2.t < max_dist {
         hit = hit2
@@ -559,6 +440,7 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
             cosine_weighted_weight,
         ) : cosine_weighted_pdf(hit.n, reflected_ray.d)
         cosine := linalg.dot(reflected_ray.d, hit.n)
+
         if cosine > 0 && norm_l1(object.color) * cosine / pdf > 1e-5 {
             irradiance := raytrace(scene, reflected_ray, depth_left - 1)
             exitance = object.color / math.PI * irradiance * cosine / pdf
