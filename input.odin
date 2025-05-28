@@ -140,10 +140,19 @@ read_gltf :: proc(gltf_path: string) -> (
         return
     }
 
-    gltf_scene := gltf.scene == nil ? &gltf.scenes[0] : gltf.scene
-    for node in gltf_scene.nodes {
-        transform := linalg.MATRIX4F32_IDENTITY
-        populate_scene(&scene, node, &transform)
+    transform := linalg.MATRIX4F32_IDENTITY
+    if gltf.scene != nil {
+        for node in gltf.scene.nodes {
+            populate_scene(&scene, node, &transform)
+        }
+    } else if gltf.scenes != nil && len(gltf.scenes) > 0 {
+        for node in gltf.scenes[0].nodes {
+            populate_scene(&scene, node, &transform)
+        }
+    } else {
+        for &node in gltf.nodes {
+            populate_scene(&scene, &node, &transform)
+        }
     }
 
     return
