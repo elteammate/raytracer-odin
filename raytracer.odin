@@ -32,6 +32,8 @@ Material :: struct {
     material_kind: Material_Kind,
     color: [3]f32,
     emission: [3]f32,
+    metallic: f32,
+    roughness: f32,
     ior: f32,
 }
 
@@ -441,8 +443,7 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
     pdf := pdf(scene, object.material, ray, hit, reflected)
     value := shade(scene, object.material, ray, hit, reflected)
     debug_rc_set(d_reflected, 1)
-    debug_rc_set(pdf, 2)
-    debug_rc_set(value, 3)
+    debug_rc_set(value / pdf * 1e-3, 2)
 
     irradiance: [3]f32 = 0
     if norm_l1(value) / pdf > 1e-5 {
@@ -452,12 +453,20 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
         exitance = object.material.emission
     }
 
-
-    debug_log_ray({
-        ray = ray,
-        t = hit.t,
-        color = exitance,
-    })
+    if norm_l1(exitance) > 1e3 {
+        debug_log_ray({
+            ray = ray,
+            t = hit.t,
+            color = {1, 0, 0}
+        })
+    }
+    if norm_l1(value) / pdf > 1e3 {
+        debug_log_ray({
+            ray = ray,
+            t = hit.t,
+            color = {0, 1, 0}
+        })
+    }
 
     return exitance
 }

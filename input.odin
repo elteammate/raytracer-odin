@@ -75,19 +75,17 @@ read_gltf :: proc(gltf_path: string) -> (
                     return "No position accessor found in mesh primitive"
                 }
 
-                material_kind := Material_Kind.Diffuse
-                color: [4]f32 = primitive.material.pbr_metallic_roughness.base_color_factor
-                ior: f32
-                emission: [3]f32 = primitive.material.emissive_factor
+                mat: Material
+                color := primitive.material.pbr_metallic_roughness.base_color_factor
+                mat.color = color.rgb
+                mat.emission = primitive.material.emissive_factor
+                mat.roughness = max(primitive.material.pbr_metallic_roughness.roughness_factor, 0.1)
+                mat.metallic = primitive.material.pbr_metallic_roughness.metallic_factor
                 if color.a < 1.0 {
-                    material_kind = .Dielectric
-                    ior = 1.5
-                }
-                if primitive.material.pbr_metallic_roughness.metallic_factor > 0.0 {
-                    material_kind = .Metallic
+                    mat.ior = 1.5
                 }
                 if primitive.material.has_emissive_strength {
-                    emission *= primitive.material.emissive_strength.emissive_strength
+                    mat.emission *= primitive.material.emissive_strength.emissive_strength
                 }
 
                 num_vertices := index_accessor == nil ? position_accessor.count : index_accessor.count
@@ -130,12 +128,7 @@ read_gltf :: proc(gltf_path: string) -> (
                             n3 = normals[2],
                             ng = ng,
                         },
-                        material = Material{
-                            material_kind = material_kind,
-                            color = color.rgb,
-                            ior = ior,
-                            emission = emission,
-                        },
+                        material = mat,
                     })
                 }
             }
