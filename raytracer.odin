@@ -15,7 +15,9 @@ import "core:thread"
 
 dot :: linalg.dot
 
-Triangle :: struct { p, u, v, n: [3]f32 }
+Triangle :: struct {
+    p, u, v, n1, n2, n3, ng: [3]f32
+}
 
 Material_Kind :: enum u32 {
     Diffuse, Metallic, Dielectric,
@@ -23,9 +25,13 @@ Material_Kind :: enum u32 {
 
 Object :: struct {
     trig: Triangle,
+    material: Material,
+}
+
+Material :: struct {
+    material_kind: Material_Kind,
     color: [3]f32,
     emission: [3]f32,
-    material_kind: Material_Kind,
     ior: f32,
 }
 
@@ -45,11 +51,11 @@ Scene :: struct {
 
 finish_scene :: proc(rc: Rc, s: ^Scene) {
     for object in s.objects[1:] {
-        if norm_l1(object.emission) > 1e-6 {
+        if norm_l1(object.material.emission) > 1e-6 {
             append(&s.light_surfaces, object)
         }
 
-        rc_log_aabb(rc, aabb_of_object(object), object.color)
+        rc_log_aabb(rc, aabb_of_object(object), object.material.color)
     }
 
     now := time.now()
@@ -89,8 +95,10 @@ Ray :: struct {
 // If t is negative, the ray does *not* intersect the geometry,
 // and other fields have arbitrary values
 Geometry_Hit :: struct {
+    // whether the ray is inside the geometry
     inside: bool,
-    n, p: [3]f32,
+    // geometry normal, shading normal, hit position
+    ng, ns, p: [3]f32,
     t: f32,
 }
 
@@ -114,16 +122,17 @@ check_intersect_ray_aabb :: proc(global_ray: Ray, aabb: AABB, max_dist: f32) -> 
 intersect_ray_triangle :: proc(ray: Ray, trig: Triangle) -> (hit: Geometry_Hit) {
     b := ray.o - trig.p
     a: matrix[3, 3]f32
-    a[0] = trig.v
-    a[1] = trig.u
+    a[0] = trig.u
+    a[1] = trig.v
     a[2] = -ray.d
     u, v, t := expand_values(linalg.inverse(a) * b)
     if u < 0 || v < 0 || u + v > 1 do return Geometry_Hit{t = -1}
     return Geometry_Hit{
         t = t,
         p = ray.o + t * ray.d,
-        n = trig.n,
-        inside = dot(trig.n, ray.d) > 0,
+        ng = trig.ng,
+        ns = linalg.normalize(trig.n1 * (1 - u - v) + trig.n2 * u + trig.n3 * v),
+        inside = dot(trig.ng, ray.d) > 0,
     }
 }
 
@@ -323,7 +332,7 @@ bvh_build :: proc(objects: []Object) -> [dynamic]BVH_Node {
 Hit :: struct {
     object: ^Object,
     t: f32,
-    p, n: [3]f32,
+    p, ng, ns: [3]f32,
     inside: bool,
 }
 
@@ -338,7 +347,7 @@ cast_ray_through_objects :: proc(objects: []Object, ray: Ray, max_dist: f32) -> 
 
         if gh.t > 0 && gh.t < hit.t {
             hit = {
-                t = gh.t, n = gh.n,
+                t = gh.t, ng = gh.ng, ns = gh.ns,
                 object = &objects[i], inside = gh.inside,
                 // p is set later
             }
@@ -416,82 +425,33 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
 
     hit := cast_ray(scene, ray, math.INF_F32)
 
-    if hit.inside do hit.n = -hit.n
+    if hit.inside {
+        hit.ng = -hit.ng
+        hit.ns = -hit.ns
+    }
 
     if hit.object == nil {
-        return scene.objects[0].color
+        return scene.objects[0].material.color
     }
 
     object := hit.object^
 
-    switch object.material_kind {
-    case .Diffuse:
-        cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 0.5 : 1.0
-        reflected_ray := Ray{o = hit.p}
-        if rand.float32() <= cosine_weighted_weight {
-            reflected_ray.d = cosine_weighted(hit.n)
-        } else {
-            reflected_ray.d = surface_sampling(scene.light_surfaces[:], hit.p)
-        }
+    d_reflected := sample(scene, object.material, ray, hit)
+    reflected := Ray{ o = hit.p, d = d_reflected }
+    pdf := pdf(scene, object.material, ray, hit, reflected)
+    value := shade(scene, object.material, ray, hit, reflected)
+    debug_rc_set(d_reflected, 1)
+    debug_rc_set(pdf, 2)
+    debug_rc_set(value, 3)
 
-        pdf := len(scene.light_surfaces) > 0 ? math.lerp(
-            surface_sampling_pdf(scene, reflected_ray),
-            cosine_weighted_pdf(hit.n, reflected_ray.d),
-            cosine_weighted_weight,
-        ) : cosine_weighted_pdf(hit.n, reflected_ray.d)
-        cosine := linalg.dot(reflected_ray.d, hit.n)
-
-        if cosine > 0 && norm_l1(object.color) * cosine / pdf > 1e-5 {
-            irradiance := raytrace(scene, reflected_ray, depth_left - 1)
-            exitance = object.color / math.PI * irradiance * cosine / pdf
-        }
-
-    case .Metallic:
-        reflected_ray := Ray{
-            o = hit.p,
-            d = ray.d - 2 * dot(hit.n, ray.d) * hit.n,
-        }
-
-        irradiance: [3]f32
-        irradiance = raytrace(scene, reflected_ray, depth_left - 1)
-
-        exitance = object.color * irradiance
-
-    case .Dielectric:
-        rel_ior := object.ior if hit.inside else 1 / object.ior
-        cos_theta1 := -dot(hit.n, ray.d)
-        sin_theta2 := math.sqrt(1 - sq(cos_theta1)) * rel_ior
-
-        if sin_theta2 < 1 {
-            base_reflection := sq((rel_ior - 1) / (rel_ior + 1))
-            ratio := base_reflection + (1 - base_reflection) * math.pow(1 - cos_theta1, 5)
-            cos_theta2 := math.sqrt(1 - sq(sin_theta2))
-            refracted_ray := Ray{
-                o = hit.p,
-                d = linalg.normalize(ray.d * rel_ior + hit.n * (rel_ior * cos_theta1 - cos_theta2)),
-            }
-            reflected_ray := Ray{
-                o = hit.p,
-                d = ray.d + 2 * cos_theta1 * hit.n,
-            }
-
-            color_coef := object.color if !hit.inside else 1
-
-            if rand.float32() > ratio {
-                exitance = color_coef * raytrace(scene, refracted_ray, depth_left - 1)
-            } else {
-                exitance = raytrace(scene, reflected_ray, depth_left - 1)
-            }
-        } else {
-            reflected_ray := Ray{
-                o = hit.p,
-                d = ray.d + 2 * cos_theta1 * hit.n,
-            }
-            exitance = raytrace(scene, reflected_ray, depth_left - 1)
-        }
+    irradiance: [3]f32 = 0
+    if norm_l1(value) / pdf > 1e-5 {
+        irradiance = raytrace(scene, reflected, depth_left - 1)
+        exitance = value * irradiance / pdf + object.material.emission
+    } else {
+        exitance = object.material.emission
     }
 
-    exitance += object.emission
 
     debug_log_ray({
         ray = ray,

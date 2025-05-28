@@ -61,10 +61,14 @@ read_gltf :: proc(gltf_path: string) -> (
             for &primitive in node.mesh.primitives {
                 primitive: ^cgltf.primitive = &primitive
                 position_accessor: ^cgltf.accessor
+                normal_accessor: ^cgltf.accessor
                 index_accessor: ^cgltf.accessor = primitive.indices
                 for accessor in primitive.attributes {
                     if accessor.name == "POSITION" {
                         position_accessor = accessor.data
+                    }
+                    if accessor.name == "NORMAL" {
+                        normal_accessor = accessor.data
                     }
                 }
                 if position_accessor == nil {
@@ -89,26 +93,49 @@ read_gltf :: proc(gltf_path: string) -> (
                 num_vertices := index_accessor == nil ? position_accessor.count : index_accessor.count
                 for i in 0..<num_vertices / 3 {
                     positions: [3][3]f32
+                    normals: [3][3]f32
                     for j in 0..<uint(3) {
                         index := index_accessor == nil ? i * 3 + j : cgltf.accessor_read_index(index_accessor, i * 3 + j)
                         if !cgltf.accessor_read_float(position_accessor, index, &positions[j][0], 3) {
                             return "Failed to read position data from accessor"
                         }
+                        if normal_accessor != nil {
+                            if !cgltf.accessor_read_float(normal_accessor, index, &normals[j][0], 3) {
+                                return "Failed to read normal data from accessor"
+                            }
+                        }
                     }
-                    positions[0] = (transform * [4]f32{positions[0][0], positions[0][1], positions[0][2], 1}).xyz
-                    positions[1] = (transform * [4]f32{positions[1][0], positions[1][1], positions[1][2], 1}).xyz
-                    positions[2] = (transform * [4]f32{positions[2][0], positions[2][1], positions[2][2], 1}).xyz
+                    for i in 0..<3 {
+                        positions[i] = (transform * [4]f32{positions[i][0], positions[i][1], positions[i][2], 1}).xyz
+                    }
+                    ng := linalg.normalize(linalg.cross(positions[1] - positions[0], positions[2] - positions[0]))
+                    if normal_accessor == nil {
+                        for i in 0..<3 {
+                            normals[i] = ng
+                        }
+                    } else {
+                        normal_transform := linalg.cofactor(linalg.matrix3_from_matrix4(transform))
+                        for i in 0..<3 {
+                            normals[i] = linalg.normalize(normal_transform * normals[i])
+                        }
+                    }
+
                     append(&scene.objects, Object{
                         trig = Triangle{
                             p = positions[0],
                             u = positions[1] - positions[0],
                             v = positions[2] - positions[0],
-                            n = linalg.normalize(linalg.cross(positions[1] - positions[0], positions[2] - positions[0])),
+                            n1 = normals[0],
+                            n2 = normals[1],
+                            n3 = normals[2],
+                            ng = ng,
                         },
-                        material_kind = material_kind,
-                        color = color.rgb,
-                        ior = ior,
-                        emission = emission,
+                        material = Material{
+                            material_kind = material_kind,
+                            color = color.rgb,
+                            ior = ior,
+                            emission = emission,
+                        },
                     })
                 }
             }

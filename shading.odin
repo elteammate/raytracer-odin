@@ -53,7 +53,7 @@ surface_sampling_pdf_objects_sum :: proc(objects: []Object, ray: Ray) -> (p: f32
         hit := intersect_ray_triangle(ray, object.trig)
         if !(hit.t >= 0) do continue
         xy := ray.o - hit.p
-        weight := linalg.length2(xy) / abs(linalg.dot(hit.n, ray.d))
+        weight := linalg.length2(xy) / abs(linalg.dot(hit.ng, ray.d))
         p += 2 / linalg.length(linalg.cross(object.trig.u, object.trig.v)) * weight
     }
     return p
@@ -91,5 +91,81 @@ surface_sampling_pdf :: proc(scene: ^Scene, ray: Ray) -> (p: f32) {
     // objects_pdf := surface_sampling_pdf_objects_sum(scene.light_surfaces[:], ray)
     objects_pdf := surface_sampling_pdf_bvh_sum(scene.light_bvh[:], scene.light_surfaces[:], ray)
     return objects_pdf / f32(len(scene.light_surfaces))
+}
+
+sample :: proc(
+    scene: ^Scene, mat: Material,
+    in_ray: Ray, hit: Hit
+) -> (d: [3]f32) {
+    switch mat.material_kind {
+    case .Diffuse:
+        cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 0.5 : 1.0
+        if rand.float32() <= cosine_weighted_weight {
+            return cosine_weighted(hit.ns)
+        } else {
+            return surface_sampling(scene.light_surfaces[:], hit.p)
+        }
+    case .Metallic:
+        return in_ray.d - 2 * linalg.dot(hit.ns, in_ray.d) * hit.ns
+    case .Dielectric:
+        rel_ior := mat.ior if hit.inside else 1 / mat.ior
+        cos_theta1 := -dot(hit.ns, in_ray.d)
+        sin_theta2 := math.sqrt(1 - sq(cos_theta1)) * rel_ior
+
+        if sin_theta2 < 1 {
+            base_reflection := sq((rel_ior - 1) / (rel_ior + 1))
+            ratio := base_reflection + (1 - base_reflection) * math.pow(1 - cos_theta1, 5)
+
+            if rand.float32() > ratio {
+                cos_theta2 := math.sqrt(1 - sq(sin_theta2))
+                return linalg.normalize(in_ray.d * rel_ior + hit.ns * (rel_ior * cos_theta1 - cos_theta2))
+            } else {
+                return in_ray.d + 2 * cos_theta1 * hit.ns
+            }
+        } else {
+            d_reflected := in_ray.d + 2 * cos_theta1 * hit.ns
+            return d_reflected
+        }
+    }
+    unreachable()
+}
+
+pdf :: proc(
+    scene: ^Scene, mat: Material,
+    in_ray: Ray, hit: Hit, out_ray: Ray,
+) -> (p: f32) {
+    switch mat.material_kind {
+    case .Diffuse:
+        cosine_weighted_weight: f32 = len(scene.light_surfaces) > 0 ? 0.5 : 1.0
+        return len(scene.light_surfaces) > 0 ? math.lerp(
+            surface_sampling_pdf(scene, out_ray),
+            cosine_weighted_pdf(hit.ns, out_ray.d),
+            cosine_weighted_weight,
+        ) : cosine_weighted_pdf(hit.ns, out_ray.d)
+    case .Metallic:
+        return 1
+    case .Dielectric:
+        return 1
+    }
+    unreachable()
+}
+
+shade :: proc(
+    scene: ^Scene, mat: Material,
+    in_ray: Ray, hit: Hit, out_ray: Ray
+) -> (exitance: [3]f32) {
+    switch mat.material_kind {
+    case .Diffuse:
+        cosine := linalg.dot(out_ray.d, hit.ns)
+        return mat.color / math.PI * max(cosine, 0)
+    case .Metallic:
+        return mat.color
+    case .Dielectric:
+        if hit.inside || linalg.dot(out_ray.d, hit.ng) < 0 {
+            return 1
+        }
+        return mat.color
+    }
+    unreachable()
 }
 
