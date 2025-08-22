@@ -5,7 +5,7 @@ import "core:c"
 import "core:math/linalg"
 import "core:strings"
 import "core:fmt"
-// import stb_image "vendor:stb/image"
+import stb_image "vendor:stb/image"
 
 Output_Mode :: enum {
     Mean,
@@ -92,15 +92,15 @@ save_result :: proc(rc: Rc, file_path: string) {
         }
         fmt.fprintf(file_handle, "P6\n%d %d\n255\n", rc.dims.x, rc.dims.y)
         os.write(file_handle, rgb_image)
-    // } else if strings.ends_with(file_path, ".png") {
-    //     stb_image.write_png(
-    //         c_file_path,
-    //         cast(c.int)rc.dims.x,
-    //         cast(c.int)rc.dims.y,
-    //         3,
-    //         raw_data(rgb_image),
-    //         0,
-    //     )
+    } else if strings.ends_with(file_path, ".png") {
+        stb_image.write_png(
+            c_file_path,
+            cast(c.int)rc.dims.x,
+            cast(c.int)rc.dims.y,
+            3,
+            raw_data(rgb_image),
+            0,
+        )
     } else {
         fmt.panicf("Unsupported file format: %v", file_path)
     }
