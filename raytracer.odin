@@ -16,25 +16,30 @@ import "core:thread"
 dot :: linalg.dot
 
 Triangle :: struct {
-    p, u, v, n1, n2, n3, ng: [3]f32
+    p, u, v, n1, n2, n3, ng: [3]f32,
+    uv1, uv2, uv3: [2]f32,
+    tan1, tan2, tan3: [4]f32,
+    material_index: int,
 }
 
-Material_Kind :: enum u32 {
-    Diffuse, Metallic, Dielectric,
-}
-
-Object :: struct {
-    trig: Triangle,
-    material: Material,
-}
-
-Material :: struct {
-    material_kind: Material_Kind,
+Point_Material :: struct {
+    pos: [3]f32,
     color: [3]f32,
+    normal: [3]f32,
     emission: [3]f32,
     metallic: f32,
     roughness: f32,
-    ior: f32,
+}
+
+Material :: struct {
+    color_factor: [3]f32,
+    color_texture: Sampler,
+    emission_factor: [3]f32,
+    emission_texture: Sampler,
+    metallic_factor: f32,
+    roughness_factor: f32,
+    metallic_roughness_texture: Sampler,
+    normal_texture: Sampler,
 }
 
 Cam :: struct {
@@ -45,23 +50,25 @@ Cam :: struct {
 
 Scene :: struct {
     cam: Cam,
-    objects: [dynamic]Object,
-    light_surfaces: [dynamic]Object,
+    trigs: [dynamic]Triangle,
+    light_surfaces: [dynamic]Triangle,
     bvh: [dynamic]BVH_Node,
     light_bvh: [dynamic]BVH_Node,
+    textures: []Texture,
+    materials: [dynamic]Material,
 }
 
 finish_scene :: proc(rc: Rc, s: ^Scene) {
-    for object in s.objects[1:] {
-        if norm_l1(object.material.emission) > 1e-6 {
-            append(&s.light_surfaces, object)
+    for trig in s.trigs[1:] {
+        if norm_l1(s.materials[trig.material_index].emission_factor) > 1e-6 {
+            append(&s.light_surfaces, trig)
         }
 
-        rc_log_aabb(rc, aabb_of_object(object), object.material.color)
+        rc_log_aabb(rc, aabb_of_triangle(trig), s.materials[trig.material_index].color_factor)
     }
 
     now := time.now()
-    s.bvh = bvh_build(s.objects[1:])
+    s.bvh = bvh_build(s.trigs[1:])
     fmt.printfln("Scene BVH built in %v", time.diff(now, time.now()))
     now = time.now()
     s.light_bvh = bvh_build(s.light_surfaces[:])
@@ -80,14 +87,15 @@ finish_scene :: proc(rc: Rc, s: ^Scene) {
     }
 
     traverse_bvh_add_aabbs(rc, s.bvh[:], len(s.bvh) - 1, 1)
-
 }
 
-destory_scene :: proc(s: ^Scene) {
-    delete(s.objects)
+destroy_scene :: proc(s: ^Scene) {
+    delete(s.trigs)
     delete(s.light_surfaces)
     delete(s.bvh)
     delete(s.light_bvh)
+    delete(s.textures)
+    delete(s.materials)
 }
 
 Ray :: struct {
@@ -100,8 +108,8 @@ Geometry_Hit :: struct {
     // whether the ray is inside the geometry
     inside: bool,
     // geometry normal, shading normal, hit position
-    ng, ns, p: [3]f32,
     t: f32,
+    uv: [2]f32,
 }
 
 check_intersect_ray_aabb :: proc(global_ray: Ray, aabb: AABB, max_dist: f32) -> (f32, bool) {
@@ -129,11 +137,10 @@ intersect_ray_triangle :: proc(ray: Ray, trig: Triangle) -> (hit: Geometry_Hit) 
     a[2] = -ray.d
     u, v, t := expand_values(linalg.inverse(a) * b)
     if u < 0 || v < 0 || u + v > 1 do return Geometry_Hit{t = -1}
+    // ns = linalg.normalize(trig.n1 * (1 - u - v) + trig.n2 * u + trig.n3 * v),
     return Geometry_Hit{
         t = t,
-        p = ray.o + t * ray.d,
-        ng = trig.ng,
-        ns = linalg.normalize(trig.n1 * (1 - u - v) + trig.n2 * u + trig.n3 * v),
+        uv = {u, v},
         inside = dot(trig.ng, ray.d) > 0,
     }
 }
@@ -183,8 +190,7 @@ aabb_of_points :: proc(points: [$N][3]f32) -> AABB {
     return aabb
 }
 
-aabb_of_object :: proc(object: Object) -> AABB {
-    trig := object.trig
+aabb_of_triangle :: proc(trig: Triangle) -> AABB {
     points := [3][3]f32{
         trig.p,
         trig.p + trig.u,
@@ -199,7 +205,7 @@ aabb_area :: proc(aabb: AABB) -> f32 {
 }
 
 BVH_Node_Leaf :: struct {
-    objects: []Object,
+    trigs: []Triangle,
 }
 
 BVH_Node_Branch :: struct {
@@ -214,30 +220,30 @@ BVH_Node :: struct {
     },
 }
 
-bvh_build :: proc(objects: []Object) -> [dynamic]BVH_Node {
-    objects := objects
+bvh_build :: proc(trigs: []Triangle) -> [dynamic]BVH_Node {
+    trigs := trigs
 
     LEAF_NODE_THRESHOLD :: 4
 
     recurse :: proc(
         buf: []AABB,
         aabbs: []AABB,
-        objects: []Object,
+        trigs: []Triangle,
         nodes: ^[dynamic]BVH_Node,
     ) -> (node_index: int) {
         Sorter :: struct {
             aabbs: []AABB,
-            objects: []Object,
+            trigs: []Triangle,
         }
 
-        if len(objects) <= LEAF_NODE_THRESHOLD {
+        if len(trigs) <= LEAF_NODE_THRESHOLD {
             aabb := AABB_EMPTY
-            for i in 0..<len(objects) {
+            for i in 0..<len(trigs) {
                 aabb = aabb_merge(aabb, aabbs[i])
             }
             node := BVH_Node{
                 aabb = aabb,
-                vertex = BVH_Node_Leaf{objects = objects}
+                vertex = BVH_Node_Leaf{trigs = trigs}
             }
             append(nodes, node)
             return len(nodes) - 1
@@ -255,7 +261,7 @@ bvh_build :: proc(objects: []Object) -> [dynamic]BVH_Node {
                 swap = proc(iface: sort.Interface, i, j: int) {
                     sorter := cast(^Sorter)(iface.collection)
                     slice.swap(sorter.aabbs, i, j)
-                    slice.swap(sorter.objects, i, j)
+                    slice.swap(sorter.trigs, i, j)
                 }
             }
         }
@@ -264,7 +270,7 @@ bvh_build :: proc(objects: []Object) -> [dynamic]BVH_Node {
         best_axis: int = 0
 
         try_axis :: proc(
-            $axis: uint, objects: []Object,
+            $axis: uint, trigs: []Triangle,
             buf: []AABB, aabbs: []AABB
         ) -> (f32, int) {
             best_sah: f32 = math.INF_F32
@@ -272,41 +278,41 @@ bvh_build :: proc(objects: []Object) -> [dynamic]BVH_Node {
             interface := sorter_interface(axis)
             sorter := Sorter{
                 aabbs = aabbs,
-                objects = objects,
+                trigs = trigs,
             }
             interface.collection = &sorter
             #force_inline sort.sort(interface)
-            for i := len(objects) - 1; i >= 0; i -= 1 {
+            for i := len(trigs) - 1; i >= 0; i -= 1 {
                 buf[i] = aabbs[i]
-                if i != len(objects) - 1 {
+                if i != len(trigs) - 1 {
                     buf[i] = aabb_merge(buf[i], buf[i + 1])
                 }
             }
             rolling_area: f32 = 0
             aabb_total := AABB_EMPTY
-            for i in 1..<len(objects) {
+            for i in 1..<len(trigs) {
                 aabb_total = aabb_merge(aabb_total, aabbs[i - 1])
                 sah := aabb_area(aabb_total) * f32(i) +
-                    aabb_area(buf[i]) * f32(len(objects) - i)
+                    aabb_area(buf[i]) * f32(len(trigs) - i)
                 if sah < best_sah do best_sah, best_index = sah, i
             }
             return best_sah, best_index
         }
 
-        sah0, _ := try_axis(0, objects, buf, aabbs)
+        sah0, _ := try_axis(0, trigs, buf, aabbs)
         aabb_total := buf[0]
-        sah1, _ := try_axis(1, objects, buf, aabbs)
-        sah2, _ := try_axis(2, objects, buf, aabbs)
+        sah1, _ := try_axis(1, trigs, buf, aabbs)
+        sah2, _ := try_axis(2, trigs, buf, aabbs)
         split: int
         if sah0 < sah1 && sah0 < sah2 {
-            _, split = try_axis(0, objects, buf, aabbs)
+            _, split = try_axis(0, trigs, buf, aabbs)
         } else if sah1 < sah0 && sah1 < sah2 {
-            _, split = try_axis(1, objects, buf, aabbs)
+            _, split = try_axis(1, trigs, buf, aabbs)
         } else {
-            _, split = try_axis(2, objects, buf, aabbs)
+            _, split = try_axis(2, trigs, buf, aabbs)
         }
-        left := recurse(buf, aabbs[:split], objects[:split], nodes)
-        right := recurse(buf, aabbs[split:], objects[split:], nodes)
+        left := recurse(buf, aabbs[:split], trigs[:split], nodes)
+        right := recurse(buf, aabbs[split:], trigs[split:], nodes)
         append(nodes, BVH_Node{
             aabb = aabb_total,
             vertex = BVH_Node_Branch{
@@ -317,46 +323,43 @@ bvh_build :: proc(objects: []Object) -> [dynamic]BVH_Node {
         return len(nodes) - 1
     }
 
-    aabbs := make([]AABB, len(objects), context.temp_allocator)
-    for i := 0; i < len(objects); i += 1 {
-        aabbs[i] = aabb_of_object(objects[i])
+    aabbs := make([]AABB, len(trigs), context.temp_allocator)
+    for i := 0; i < len(trigs); i += 1 {
+        aabbs[i] = aabb_of_triangle(trigs[i])
     }
 
-    nodes := make([dynamic]BVH_Node, 0, len(objects) / 2)
-    buf := make([]AABB, len(objects), context.temp_allocator)
+    nodes := make([dynamic]BVH_Node, 0, len(trigs) / 2)
+    buf := make([]AABB, len(trigs), context.temp_allocator)
     defer delete(buf, context.temp_allocator)
     defer delete(aabbs, context.temp_allocator)
 
-    recurse(buf, aabbs[:len(objects)], objects, &nodes)
+    recurse(buf, aabbs[:len(trigs)], trigs, &nodes)
     return nodes
 }
 
 Hit :: struct {
-    object: ^Object,
+    trig: ^Triangle,
     t: f32,
-    p, ng, ns: [3]f32,
     inside: bool,
+    uv: [2]f32,
 }
 
-cast_ray_through_objects :: proc(objects: []Object, ray: Ray, max_dist: f32) -> (hit: Hit) {
-    hit.object = nil
+cast_ray_through_trigs :: proc(trigs: []Triangle, ray: Ray, max_dist: f32) -> (hit: Hit) {
+    hit.trig = nil
     hit.t = max_dist
 
     // assert(abs(linalg.length2(ray.d) - 1) < 1e-4)
 
-    for &object, i in objects {
-        gh := intersect_ray_triangle(ray, object.trig)
+    for &trig, i in trigs {
+        gh := intersect_ray_triangle(ray, trig)
 
         if gh.t > 0 && gh.t < hit.t {
             hit = {
-                t = gh.t, ng = gh.ng, ns = gh.ns,
-                object = &objects[i], inside = gh.inside,
-                // p is set later
+                t = gh.t, uv = gh.uv,
+                trig = &trigs[i], inside = gh.inside,
             }
         }
     }
-
-    hit.p = ray.o + hit.t * ray.d
 
     return
 }
@@ -377,7 +380,7 @@ cast_ray_through_bvh :: proc(bvh: []BVH_Node, ray: Ray, max_dist: f32) -> (hit: 
         node := bvh[id]
         switch vertex in node.vertex {
         case BVH_Node_Leaf:
-            cur_hit := cast_ray_through_objects(vertex.objects, ray, max_dist)
+            cur_hit := cast_ray_through_trigs(vertex.trigs, ray, max_dist)
             if cur_hit.t < max_dist {
                 hit = cur_hit
                 max_dist = cur_hit.t
@@ -427,30 +430,64 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
 
     hit := cast_ray(scene, ray, math.INF_F32)
 
+    if hit.trig == nil {
+        return scene.materials[scene.trigs[0].material_index].color_factor
+    }
+
+    trig := hit.trig^
+    u := hit.uv.x
+    v := hit.uv.y
+
+    object_mat := scene.materials[trig.material_index]
+
+    metallic_roughness := texture_sample(object_mat.metallic_roughness_texture, hit.uv)
+    p := trig.p + trig.u * u + trig.v * v
+    normal: [3]f32
+    if object_mat.normal_texture.texture != nil {
+        tangent := linalg.normalize(trig.tan1 * (1 - u - v) + trig.tan2 * u + trig.tan3 * v)
+        local_x := tangent.xyz
+        local_z := linalg.normalize(trig.n1 * (1 - u - v) + trig.n2 * u + trig.n3 * v)
+        local_y := linalg.cross(local_z, local_x) * tangent.w
+        local_basis := matrix[3, 3]f32{
+            local_x.x, local_y.x, local_z.x,
+            local_x.y, local_y.y, local_z.y,
+            local_x.z, local_y.z, local_z.z,
+        }
+        normal_sample := texture_sample(object_mat.normal_texture, hit.uv, default = {0.5, 1.0, 0.5, 0.0}).xyz
+        local_normal := normal_sample * 2 - 1
+        normal = linalg.normalize(local_basis * local_normal)
+    } else {
+        normal = linalg.normalize(trig.n1 * (1 - u - v) + trig.n2 * u + trig.n3 * v)
+    }
+
+    mat := Point_Material{
+        pos = p,
+        normal = normal,
+        color = object_mat.color_factor * texture_sample(object_mat.color_texture, hit.uv, srgb = true).rgb,
+        emission = object_mat.emission_factor * texture_sample(object_mat.emission_texture, hit.uv, srgb = true).rgb,
+        roughness = object_mat.roughness_factor * metallic_roughness.g,
+        metallic = object_mat.metallic_factor * metallic_roughness.b,
+    }
+    ng: [3]f32 = hit.trig.ng
+
     if hit.inside {
-        hit.ng = -hit.ng
-        hit.ns = -hit.ns
+        ng = -ng
+        mat.normal = -mat.normal
     }
 
-    if hit.object == nil {
-        return scene.objects[0].material.color
-    }
-
-    object := hit.object^
-
-    d_reflected := sample(scene, object.material, ray, hit)
-    reflected := Ray{ o = hit.p, d = d_reflected }
-    pdf := pdf(scene, object.material, ray, hit, reflected)
-    value := shade(scene, object.material, ray, hit, reflected)
+    d_reflected := sample(scene, mat, ray)
+    reflected := Ray{ o = p, d = d_reflected }
+    pdf := pdf(scene, mat, ray, reflected)
+    value := shade(scene, mat, ray, reflected)
     debug_rc_set(d_reflected, 1)
     debug_rc_set(value / pdf * 1e-3, 2)
 
     irradiance: [3]f32 = 0
     if norm_l1(value) / pdf > 1e-5 {
         irradiance = raytrace(scene, reflected, depth_left - 1)
-        exitance = value * irradiance / pdf + object.material.emission
+        exitance = value * irradiance / pdf + mat.emission
     } else {
-        exitance = object.material.emission
+        exitance = mat.emission
     }
 
     if norm_l1(exitance) > 1e3 {
@@ -556,6 +593,8 @@ render_task :: proc(rc: Rc, scene: ^Scene, tile_id: ^u64) {
 render_scene :: proc(rc: Rc, scene: ^Scene, number_of_trials: int = 1) {
     timings := make([]time.Duration, number_of_trials)
     defer delete(timings)
+
+    fmt.println(scene)
 
     for trial in 0..<number_of_trials {
         start_instant := time.now()

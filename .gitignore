@@ -2,4 +2,4 @@ raytracer-odin
 out.ppm
 out.png
 *.o
-
+.vscode/

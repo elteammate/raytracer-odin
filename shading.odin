@@ -38,30 +38,31 @@ cosine_weighted_pdf :: proc(n: [3]f32, omega: [3]f32) -> f32 {
     return max(dot(n, omega) / math.PI, 0)
 }
 
-surface_sampling :: proc(objects: []Object, origin: [3]f32) -> [3]f32 {
-    object_index := rand.int_max(len(objects))
-    object := objects[object_index]
+surface_sampling :: proc(trigs: []Triangle, origin: [3]f32) -> [3]f32 {
+    index := rand.int_max(len(trigs))
+    trig := trigs[index]
     local: [3]f32
     u := rand.float32_range(0, 1)
     v := rand.float32_range(0, 1)
     if u + v > 1 do u, v = 1 - u, 1 - v
-    world := object.trig.p + u * object.trig.u + v * object.trig.v
+    world := trig.p + u * trig.u + v * trig.v
     return linalg.normalize(world - origin)
 }
 
-surface_sampling_pdf_objects_sum :: proc(objects: []Object, ray: Ray) -> (p: f32) {
-    for object in objects {
-        hit := intersect_ray_triangle(ray, object.trig)
+surface_sampling_pdf_trigs_sum :: proc(trigs: []Triangle, ray: Ray) -> (p: f32) {
+    for trig in trigs {
+        hit := intersect_ray_triangle(ray, trig)
         if !(hit.t >= 0) do continue
-        xy := ray.o - hit.p
-        weight := linalg.length2(xy) / abs(dot(hit.ng, ray.d))
-        p += 2 / linalg.length(linalg.cross(object.trig.u, object.trig.v)) * weight
+        p := ray.o + hit.t * ray.d
+        xy := ray.o - p
+        weight := linalg.length2(xy) / abs(dot(trig.ng, ray.d))
+        p += 2 / linalg.length(linalg.cross(trig.u, trig.v)) * weight
     }
     return p
 }
 
 surface_sampling_pdf_bvh_sum :: proc(
-    bvh: []BVH_Node, objects: []Object,
+    bvh: []BVH_Node, trigs: []Triangle,
     global_ray: Ray,
 ) -> (p: f32) {
     RAY_EPS :: 1e-3
@@ -82,7 +83,7 @@ surface_sampling_pdf_bvh_sum :: proc(
         node := bvh[id]
         switch vertex in node.vertex {
         case BVH_Node_Leaf:
-            p += surface_sampling_pdf_objects_sum(vertex.objects, ray)
+            p += surface_sampling_pdf_trigs_sum(vertex.trigs, ray)
         case BVH_Node_Branch:
             _, hl := check_intersect_ray_aabb(ray, bvh[vertex.left].aabb, math.INF_F32)
             _, hr := check_intersect_ray_aabb(ray, bvh[vertex.right].aabb, math.INF_F32)
@@ -138,32 +139,31 @@ vndf_sampling_pdf :: proc(n, omega: [3]f32, alpha: f32, L: [3]f32) -> f32 {
 }
 
 sample :: proc(
-    scene: ^Scene, mat: Material,
-    in_ray: Ray, hit: Hit
+    scene: ^Scene, mat: Point_Material, in_ray: Ray,
 ) -> (d: [3]f32) {
     t := rand.float32()
     if t <= 0.33333 {
-        return cosine_weighted(hit.ns)
+        return cosine_weighted(mat.normal)
     } else if t < 0.666666 {
-        return surface_sampling(scene.light_surfaces[:], hit.p)
+        return surface_sampling(scene.light_surfaces[:], mat.pos)
     } else {
-        n := vndf_sampling(hit.ns, -in_ray.d, sq(mat.roughness))
+        n := vndf_sampling(mat.normal, -in_ray.d, sq(mat.roughness))
         return in_ray.d - 2 * dot(n, in_ray.d) * n
     }
 }
 
 pdf :: proc(
-    scene: ^Scene, mat: Material,
-    in_ray: Ray, hit: Hit, out_ray: Ray,
+    scene: ^Scene, mat: Point_Material,
+    in_ray: Ray, out_ray: Ray,
 ) -> (p: f32) {
-    return (cosine_weighted_pdf(hit.ns, out_ray.d) +
+    return (cosine_weighted_pdf(mat.normal, out_ray.d) +
         surface_sampling_pdf(scene, out_ray) +
-        vndf_sampling_pdf(hit.ns, -in_ray.d, sq(mat.roughness), out_ray.d)) / 3
+        vndf_sampling_pdf(mat.normal, -in_ray.d, sq(mat.roughness), out_ray.d)) / 3
 }
 
 shade :: proc(
-    scene: ^Scene, mat: Material,
-    in_ray: Ray, hit: Hit, out_ray: Ray
+    scene: ^Scene, mat: Point_Material,
+    in_ray: Ray, out_ray: Ray
 ) -> (exitance: [3]f32) {
     alpha := sq(mat.roughness)
     alpha2 := sq(alpha)
@@ -171,7 +171,7 @@ shade :: proc(
     L := out_ray.d
     V := -in_ray.d
     H := linalg.normalize(L + V)
-    N := hit.ns
+    N := mat.normal
 
     cosine := dot(L, N)
 

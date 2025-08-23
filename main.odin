@@ -175,7 +175,7 @@ main :: proc() {
     if parse_error != nil {
         fmt.panicf("Failed to parse gltf: %v", parse_error)
     }
-    defer destory_scene(&scene)
+    defer destroy_scene(&scene)
 
     if args.width != 0 do cfg.dims.x = args.width
     if args.height != 0 {
