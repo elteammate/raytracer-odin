@@ -1,6 +1,7 @@
 package raytracer
 
 import "core:c"
+import "core:mem"
 import "core:sys/posix"
 import "core:flags"
 import "core:os"
@@ -77,6 +78,12 @@ create_rendering_context :: proc(cfg: Rendering_Config) -> (rc: Rendering_Contex
 
 destroy_rendering_context :: proc(rc: Rc) {
     for layer in rc.pixels do delete(layer)
+    when EXPENSIVE_DEBUG {
+        delete(rc.ray_logs)
+    }
+    when DEBUG_FEATURES {
+        delete(rc.debug_lines)
+    }
 }
 
 rc_set_pixel :: proc(rc: Rc, pos: [2]u32, color: [3]f32, layer: int) {
@@ -149,6 +156,17 @@ rc_log_aabb :: proc(rc: Rc, aabb: AABB, color: [3]f32 = {1, 1, 1}, tag: u32 = 0)
 }
 
 main :: proc() {
+    when EXPENSIVE_DEBUG {
+        track: mem.Tracking_Allocator
+        mem.tracking_allocator_init(&track, context.allocator)
+        defer mem.tracking_allocator_destroy(&track)
+        context.allocator = mem.tracking_allocator(&track)
+
+        defer for _, leak in track.allocation_map {
+            fmt.printf("%v leaked %m\n", leak.location, leak.size)
+        }
+    }
+
     posix.signal(.SIGINT, proc "cdecl" (_: posix.Signal) {
         sync.atomic_store_explicit(&async_interrupt, true, .Relaxed)
     })
@@ -164,6 +182,7 @@ main :: proc() {
         height: u32 `usage:"Height of the output image"`,
         ray_depth: i32 `usage:"Max depth of rays"`,
         num_samples: int `usage:"Number of samples per pixel"`,
+        env_map: string `usage:"Environment map file"`,
     }
 
     flags.parse_or_exit(&args, os.args, .Unix)
@@ -190,6 +209,14 @@ main :: proc() {
         cfg.threads = args.threads
     } else {
         cfg.threads = max(os.processor_core_count(), 1)
+    }
+    if args.env_map != "" {
+        scene.env_map, parse_error = load_texture(args.env_map)
+        if parse_error != nil {
+            fmt.panicf("Failed to load environment map: %v", parse_error)
+        }
+    } else {
+        scene.env_map = nil
     }
 
     rendering_context := create_rendering_context(cfg)

@@ -1,6 +1,7 @@
 package raytracer
 
 import "core:os"
+import "core:net"
 import "core:strings"
 import "core:fmt"
 import "core:bufio"
@@ -51,9 +52,14 @@ read_gltf :: proc(gltf_path: string) -> (
         texture_cache: ^map[string]Texture,
         image: ^cgltf.image,
     ) -> (texture: Texture, error: Maybe(string)) {
-        path, err := path.join({root_path, string(image.uri)}, context.temp_allocator)
+        uri, ok := net.percent_decode(string(image.uri), context.temp_allocator)
+        if !ok {
+            error = fmt.tprintf("Failed to decode image path: %v", image.uri)
+            return
+        }
+        path, err := path.join({root_path, uri}, context.temp_allocator)
         if err != nil {
-            error = fmt.tprintf("Failed to resolve image path: %v (%v / %v)", err, root_path, image.uri)
+            error = fmt.tprintf("Failed to resolve image path: %v (%v / %v)", err, root_path, uri)
             return
         }
 
@@ -107,7 +113,7 @@ read_gltf :: proc(gltf_path: string) -> (
                 primitive: ^cgltf.primitive = &primitive
                 position_accessor: ^cgltf.accessor
                 normal_accessor: ^cgltf.accessor
-                uv_accessor: ^cgltf.accessor
+                texcoord_accessor: ^cgltf.accessor
                 tangent_accessor: ^cgltf.accessor
                 index_accessor: ^cgltf.accessor = primitive.indices
                 for accessor in primitive.attributes {
@@ -118,7 +124,7 @@ read_gltf :: proc(gltf_path: string) -> (
                         normal_accessor = accessor.data
                     }
                     if accessor.name == "TEXCOORD_0" {
-                        uv_accessor = accessor.data
+                        texcoord_accessor = accessor.data
                     }
                     if accessor.name == "TANGENT" {
                         tangent_accessor = accessor.data
@@ -139,7 +145,7 @@ read_gltf :: proc(gltf_path: string) -> (
                 mat.emission_texture = load_sampler(
                     root_path, texture_cache, primitive.material.emissive_texture
                 ) or_return
-                mat.roughness_factor = max(metallic_roughness.roughness_factor, 0.03)
+                mat.roughness_factor = metallic_roughness.roughness_factor
                 mat.metallic_factor = metallic_roughness.metallic_factor
                 mat.metallic_roughness_texture = load_sampler(
                     root_path, texture_cache, metallic_roughness.metallic_roughness_texture
@@ -159,7 +165,7 @@ read_gltf :: proc(gltf_path: string) -> (
                 for i in 0..<num_vertices / 3 {
                     positions: [3][3]f32
                     normals: [3][3]f32
-                    uvs: [3][2]f32
+                    texcoords: [3][2]f32
                     tangents: [3][4]f32
                     for j in 0..<uint(3) {
                         index := index_accessor == nil ? i * 3 + j : cgltf.accessor_read_index(index_accessor, i * 3 + j)
@@ -171,8 +177,8 @@ read_gltf :: proc(gltf_path: string) -> (
                                 return "Failed to read normal data from accessor"
                             }
                         }
-                        if uv_accessor != nil {
-                            if !cgltf.accessor_read_float(uv_accessor, index, &uvs[j][0], 2) {
+                        if texcoord_accessor != nil {
+                            if !cgltf.accessor_read_float(texcoord_accessor, index, &texcoords[j][0], 2) {
                                 return "Failed to read UV data from accessor"
                             }
                         }
@@ -207,9 +213,9 @@ read_gltf :: proc(gltf_path: string) -> (
                         n1 = normals[0],
                         n2 = normals[1],
                         n3 = normals[2],
-                        uv1 = uvs[0],
-                        uv2 = uvs[1],
-                        uv3 = uvs[2],
+                        tex1 = texcoords[0],
+                        tex2 = texcoords[1],
+                        tex3 = texcoords[2],
                         tan1 = tangents[0],
                         tan2 = tangents[1],
                         tan3 = tangents[2],

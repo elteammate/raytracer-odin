@@ -53,9 +53,7 @@ surface_sampling_pdf_trigs_sum :: proc(trigs: []Triangle, ray: Ray) -> (p: f32) 
     for trig in trigs {
         hit := intersect_ray_triangle(ray, trig)
         if !(hit.t >= 0) do continue
-        p := ray.o + hit.t * ray.d
-        xy := ray.o - p
-        weight := linalg.length2(xy) / abs(dot(trig.ng, ray.d))
+        weight := sq(hit.t) / abs(dot(trig.ng, ray.d))
         p += 2 / linalg.length(linalg.cross(trig.u, trig.v)) * weight
     }
     return p
@@ -144,7 +142,7 @@ sample :: proc(
     t := rand.float32()
     if t <= 0.33333 {
         return cosine_weighted(mat.normal)
-    } else if t < 0.666666 {
+    } else if t < 0.666666 && len(scene.light_surfaces) > 0 {
         return surface_sampling(scene.light_surfaces[:], mat.pos)
     } else {
         n := vndf_sampling(mat.normal, -in_ray.d, sq(mat.roughness))
@@ -156,9 +154,11 @@ pdf :: proc(
     scene: ^Scene, mat: Point_Material,
     in_ray: Ray, out_ray: Ray,
 ) -> (p: f32) {
+    has_lights := len(scene.light_surfaces) > 0
     return (cosine_weighted_pdf(mat.normal, out_ray.d) +
-        surface_sampling_pdf(scene, out_ray) +
-        vndf_sampling_pdf(mat.normal, -in_ray.d, sq(mat.roughness), out_ray.d)) / 3
+        (surface_sampling_pdf(scene, out_ray) if has_lights else 0) +
+        vndf_sampling_pdf(mat.normal, -in_ray.d, sq(mat.roughness), out_ray.d) *
+            (1 if has_lights else 2)) / 3
 }
 
 shade :: proc(

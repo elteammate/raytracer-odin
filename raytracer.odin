@@ -17,7 +17,7 @@ dot :: linalg.dot
 
 Triangle :: struct {
     p, u, v, n1, n2, n3, ng: [3]f32,
-    uv1, uv2, uv3: [2]f32,
+    tex1, tex2, tex3: [2]f32,
     tan1, tan2, tan3: [4]f32,
     material_index: int,
 }
@@ -56,6 +56,7 @@ Scene :: struct {
     light_bvh: [dynamic]BVH_Node,
     textures: []Texture,
     materials: [dynamic]Material,
+    env_map: Maybe(Texture),
 }
 
 finish_scene :: proc(rc: Rc, s: ^Scene) {
@@ -96,6 +97,9 @@ destroy_scene :: proc(s: ^Scene) {
     delete(s.light_bvh)
     delete(s.textures)
     delete(s.materials)
+    if env_map, has := s.env_map.?; has {
+        destroy_texture(env_map)
+    }
 }
 
 Ray :: struct {
@@ -431,7 +435,14 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
     hit := cast_ray(scene, ray, math.INF_F32)
 
     if hit.trig == nil {
-        return scene.materials[scene.trigs[0].material_index].color_factor
+        sampler := Sampler{
+            texture = scene.env_map
+        }
+        texcoord := [2]f32{
+            0.5 + math.atan2(ray.d.z, ray.d.x) / math.TAU,
+            0.5 - math.asin(ray.d.y) / math.PI,
+        }
+        return texture_sample(sampler, texcoord, default = {0.0, 0.0, 0.0, 0.0}).rgb
     }
 
     trig := hit.trig^
@@ -440,7 +451,8 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
 
     object_mat := scene.materials[trig.material_index]
 
-    metallic_roughness := texture_sample(object_mat.metallic_roughness_texture, hit.uv)
+    texcoords := trig.tex1 * (1 - u - v) + trig.tex2 * u + trig.tex3 * v
+    metallic_roughness := texture_sample(object_mat.metallic_roughness_texture, texcoords)
     p := trig.p + trig.u * u + trig.v * v
     normal: [3]f32
     if object_mat.normal_texture.texture != nil {
@@ -453,7 +465,7 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
             local_x.y, local_y.y, local_z.y,
             local_x.z, local_y.z, local_z.z,
         }
-        normal_sample := texture_sample(object_mat.normal_texture, hit.uv, default = {0.5, 1.0, 0.5, 0.0}).xyz
+        normal_sample := texture_sample(object_mat.normal_texture, texcoords, default = {0.5, 1.0, 0.5, 0.0}).xyz
         local_normal := normal_sample * 2 - 1
         normal = linalg.normalize(local_basis * local_normal)
     } else {
@@ -463,9 +475,9 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
     mat := Point_Material{
         pos = p,
         normal = normal,
-        color = object_mat.color_factor * texture_sample(object_mat.color_texture, hit.uv, srgb = true).rgb,
-        emission = object_mat.emission_factor * texture_sample(object_mat.emission_texture, hit.uv, srgb = true).rgb,
-        roughness = object_mat.roughness_factor * metallic_roughness.g,
+        color = object_mat.color_factor * texture_sample(object_mat.color_texture, texcoords, srgb = true).rgb,
+        emission = object_mat.emission_factor * texture_sample(object_mat.emission_texture, texcoords, srgb = true).rgb,
+        roughness = max(object_mat.roughness_factor * metallic_roughness.g, 0.03),
         metallic = object_mat.metallic_factor * metallic_roughness.b,
     }
     ng: [3]f32 = hit.trig.ng
@@ -479,12 +491,9 @@ raytrace :: proc(scene: ^Scene, ray: Ray, depth_left: i32) -> (exitance: [3]f32)
     reflected := Ray{ o = p, d = d_reflected }
     pdf := pdf(scene, mat, ray, reflected)
     value := shade(scene, mat, ray, reflected)
-    debug_rc_set(d_reflected, 1)
-    debug_rc_set(value / pdf * 1e-3, 2)
 
-    irradiance: [3]f32 = 0
     if norm_l1(value) / pdf > 1e-5 {
-        irradiance = raytrace(scene, reflected, depth_left - 1)
+        irradiance := raytrace(scene, reflected, depth_left - 1)
         exitance = value * irradiance / pdf + mat.emission
     } else {
         exitance = mat.emission
@@ -594,8 +603,6 @@ render_scene :: proc(rc: Rc, scene: ^Scene, number_of_trials: int = 1) {
     timings := make([]time.Duration, number_of_trials)
     defer delete(timings)
 
-    fmt.println(scene)
-
     for trial in 0..<number_of_trials {
         start_instant := time.now()
 
@@ -612,7 +619,7 @@ render_scene :: proc(rc: Rc, scene: ^Scene, number_of_trials: int = 1) {
         render_task(rc, scene, &tile_id)
 
         for t in sa.slice(&threads) {
-            thread.join(t)
+            thread.destroy(t)
         }
 
         end_instant := time.now()

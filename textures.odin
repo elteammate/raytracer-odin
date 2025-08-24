@@ -3,6 +3,7 @@ package raytracer
 import "core:math/linalg"
 import "core:os"
 import "core:c"
+import "core:fmt"
 import stbi "vendor:stb/image"
 
 Texture_Data :: union {
@@ -24,19 +25,32 @@ Sampler :: struct {
 load_texture :: proc(path: string) -> (texture: Texture, err: Maybe(string)) {
     data, ok := os.read_entire_file_from_filename(path, context.temp_allocator)
     if !ok {
-        err = "Failed to read texture file"
+        err = fmt.tprintf("Failed to read texture file: %s", path)
         return
     }
-
-    stbi.set_flip_vertically_on_load(1)
 
     dims: [2]c.int
     channels: c.int
 
-    image := stbi.load_from_memory(
-        raw_data(data), cast(c.int)len(data),
-        &dims.x, &dims.y, &channels, 0
-    )
+    image: Texture_Data
+    if stbi.is_hdr_from_memory(raw_data(data), cast(c.int)len(data)) != 0 {
+        image = stbi.loadf_from_memory(
+            raw_data(data), cast(c.int)len(data),
+            &dims.x, &dims.y, &channels, 0
+        )
+        pixels := (transmute([^][3]f32)image.([^]f32))[:dims.x * dims.y]
+        min, max, mean: [3]f32
+        for p in pixels {
+            min = linalg.min(min, p)
+            max = linalg.max(max, p)
+            mean += p
+        }
+    } else {
+        image = stbi.load_from_memory(
+            raw_data(data), cast(c.int)len(data),
+            &dims.x, &dims.y, &channels, 0
+        )
+    }
 
     if image == nil {
         err = "Failed to parse texture"
@@ -58,7 +72,7 @@ destroy_texture :: proc(texture: Texture) {
     case [^]u8:
         stbi.image_free(data)
     case [^]f32:
-        // manually allocated
+        stbi.image_free(data)
     }
 }
 
@@ -76,7 +90,7 @@ texture_index :: proc(texture: Texture, coords: [2]int, srgb: bool) -> (pixel: [
         }
     case [^]f32:
         for c in 0..<cast(int)texture.channels {
-            pixel[c] = cast(f32)data[index + c]
+            pixel[c] = data[index + c]
         }
     case nil:
         return {1, 1, 1, 1}
@@ -90,18 +104,18 @@ texture_index :: proc(texture: Texture, coords: [2]int, srgb: bool) -> (pixel: [
 }
 
 texture_sample :: proc(
-    sampler: Sampler, uv: [2]f32,
+    sampler: Sampler, coords: [2]f32,
     srgb: bool = false, default: [4]f32 = {1.0, 1.0, 1.0, 1.0},
 ) -> [4]f32 {
     if sampler.texture == nil {
         return default
     }
     texture := sampler.texture.(Texture)
-    coords := uv * linalg.to_f32(texture.dims)
+    pixel_coords := coords * linalg.to_f32(texture.dims)
 
-    coords_low := linalg.floor(coords)
-    coords_high := linalg.ceil(coords)
-    t := coords - coords_low
+    coords_low := linalg.floor(pixel_coords)
+    coords_high := linalg.ceil(pixel_coords)
+    t := pixel_coords - coords_low
 
     c00 := linalg.to_int(coords_low) %% texture.dims
     c11 := linalg.to_int(coords_high) %% texture.dims
@@ -115,7 +129,7 @@ texture_sample :: proc(
 
     return linalg.lerp(
         linalg.lerp(p00, p01, t.y),
-        linalg.lerp(p00, p01, t.y),
+        linalg.lerp(p10, p11, t.y),
         t.x,
     )
 }
